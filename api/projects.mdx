@@ -1,0 +1,685 @@
+---
+title: 'Project Endpoints'
+description: 'REST API endpoints for managing projects and project-user associations'
+---
+
+## Overview
+
+Project endpoints allow you to create and manage projects, assign configurations to projects, and manage user membership within projects. Projects serve as containers that link users with specific MCP configurations.
+
+## List All Projects
+
+Retrieve a list of all projects in the system.
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8001/api/v1/projects" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:8001/api/v1/projects",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+projects = response.json()
+```
+
+```javascript JavaScript
+const response = await fetch('http://localhost:8001/api/v1/projects', {
+  headers: { 'Authorization': `Bearer ${adminKey}` }
+});
+const projects = await response.json();
+```
+</CodeGroup>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Projects retrieved successfully",
+  "data": [
+    {
+      "project_id": "660e8400-e29b-41d4-a716-446655440000",
+      "project_name": "development-project",
+      "mcp_config_id": "550e8400-e29b-41d4-a716-446655440000",
+      "mcp_config_name": "dev-config",
+      "users_count": 3,
+      "created_at": "2024-01-01T12:00:00.000000"
+    },
+    {
+      "project_id": "770e8400-e29b-41d4-a716-446655440000",
+      "project_name": "production-project",
+      "mcp_config_id": "880e8400-e29b-41d4-a716-446655440000",
+      "mcp_config_name": "prod-config",
+      "users_count": 5,
+      "created_at": "2024-01-01T12:00:00.000000"
+    }
+  ],
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+<ResponseField name="data" type="array">
+  <Expandable title="Project Object">
+    <ResponseField name="project_id" type="string" required>
+      Unique identifier for the project
+    </ResponseField>
+    <ResponseField name="project_name" type="string" required>
+      Human-readable name of the project
+    </ResponseField>
+    <ResponseField name="mcp_config_id" type="string">
+      ID of the assigned MCP configuration
+    </ResponseField>
+    <ResponseField name="mcp_config_name" type="string">
+      Name of the assigned configuration
+    </ResponseField>
+    <ResponseField name="users_count" type="integer" required>
+      Number of users in this project
+    </ResponseField>
+    <ResponseField name="created_at" type="string" required>
+      ISO 8601 timestamp of project creation
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Create Project
+
+Create a new project.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/projects" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"project_name": "staging-project"}'
+```
+
+```python Python
+response = requests.post(
+    "http://localhost:8001/api/v1/projects",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"project_name": "staging-project"}
+)
+result = response.json()
+```
+
+```javascript JavaScript
+const response = await fetch('http://localhost:8001/api/v1/projects', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${adminKey}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ project_name: 'staging-project' })
+});
+const result = await response.json();
+```
+</CodeGroup>
+
+<ParamField body="project_name" type="string" required>
+  Name for the new project (must be unique)
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Project created successfully",
+  "data": {
+    "project_id": "990e8400-e29b-41d4-a716-446655440000",
+    "project_name": "staging-project"
+  },
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Get Project
+
+Retrieve details of a specific project.
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8001/api/v1/projects/{project_identifier}" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.get(
+    f"http://localhost:8001/api/v1/projects/{project_id}",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+project = response.json()
+```
+</CodeGroup>
+
+<ParamField path="project_identifier" type="string" required>
+  Project ID or project name
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Project retrieved successfully",
+  "data": {
+    "project_id": "660e8400-e29b-41d4-a716-446655440000",
+    "project_name": "development-project",
+    "mcp_config_id": "550e8400-e29b-41d4-a716-446655440000",
+    "users": [
+      "440e8400-e29b-41d4-a716-446655440000",
+      "330e8400-e29b-41d4-a716-446655440000"
+    ],
+    "created_at": "2024-01-01T12:00:00.000000"
+  },
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Delete Project
+
+Delete a project and remove all user associations.
+
+<Warning>
+  Deleting a project will remove all API keys associated with users in this project.
+</Warning>
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE "http://localhost:8001/api/v1/projects/{project_identifier}" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.delete(
+    f"http://localhost:8001/api/v1/projects/{project_id}",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+```
+</CodeGroup>
+
+<ParamField path="project_identifier" type="string" required>
+  Project ID or project name
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Project deleted successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Assign Configuration to Project
+
+Assign an MCP configuration to a project.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/projects/{project_identifier}/assign-config" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"config_name": "production-config"}'
+```
+
+```python Python
+response = requests.post(
+    f"http://localhost:8001/api/v1/projects/{project_id}/assign-config",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"config_name": "production-config"}
+)
+```
+</CodeGroup>
+
+<ParamField path="project_identifier" type="string" required>
+  Project ID or project name
+</ParamField>
+
+<ParamField body="config_name" type="string">
+  Configuration name to assign (either config_name or config_id required)
+</ParamField>
+
+<ParamField body="config_id" type="string">
+  Configuration ID to assign (either config_name or config_id required)
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Configuration assigned to project successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Unassign Configuration from Project
+
+Remove the configuration assignment from a project.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/projects/{project_identifier}/unassign-config" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.post(
+    f"http://localhost:8001/api/v1/projects/{project_id}/unassign-config",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+```
+</CodeGroup>
+
+<ParamField path="project_identifier" type="string" required>
+  Project ID or project name
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Configuration unassigned from project successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Get Project Configuration
+
+Retrieve the full configuration assigned to a project.
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8001/api/v1/projects/{project_identifier}/config" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.get(
+    f"http://localhost:8001/api/v1/projects/{project_id}/config",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+config = response.json()
+```
+</CodeGroup>
+
+<ParamField path="project_identifier" type="string" required>
+  Project ID or project name
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Project configuration retrieved successfully",
+  "data": {
+    "mcp_config_id": "550e8400-e29b-41d4-a716-446655440000",
+    "mcp_config_name": "production-config",
+    "mcp_config": [
+      {
+        "server_name": "github",
+        "description": "GitHub MCP Server",
+        "config": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-github"]
+        }
+      }
+    ]
+  },
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## List Project Users
+
+Get all users associated with a project.
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8001/api/v1/projects/{project_identifier}/users" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.get(
+    f"http://localhost:8001/api/v1/projects/{project_id}/users",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+users = response.json()
+```
+</CodeGroup>
+
+<ParamField path="project_identifier" type="string" required>
+  Project ID or project name
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Project users retrieved successfully",
+  "data": [
+    {
+      "user_id": "440e8400-e29b-41d4-a716-446655440000",
+      "email": "alice@example.com",
+      "created_at": "2024-01-01T12:00:00.000000"
+    },
+    {
+      "user_id": "330e8400-e29b-41d4-a716-446655440000",
+      "email": "bob@example.com",
+      "created_at": "2024-01-01T12:00:00.000000"
+    }
+  ],
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Add User to Project
+
+Add an existing user to a project.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/projects/{project_identifier}/users" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com"}'
+```
+
+```python Python
+response = requests.post(
+    f"http://localhost:8001/api/v1/projects/{project_id}/users",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"email": "user@example.com"}
+)
+```
+</CodeGroup>
+
+<ParamField path="project_identifier" type="string" required>
+  Project ID or project name
+</ParamField>
+
+<ParamField body="email" type="string">
+  Email address of the user to add (either email or user_id required)
+</ParamField>
+
+<ParamField body="user_id" type="string">
+  User ID to add (either email or user_id required)
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "User added to project successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Remove User from Project
+
+Remove a user from a project.
+
+<Warning>
+  Removing a user from a project will invalidate all API keys associated with that user and project.
+</Warning>
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE "http://localhost:8001/api/v1/projects/{project_identifier}/users/{user_identifier}" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.delete(
+    f"http://localhost:8001/api/v1/projects/{project_id}/users/{user_id}",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+```
+</CodeGroup>
+
+<ParamField path="project_identifier" type="string" required>
+  Project ID or project name
+</ParamField>
+
+<ParamField path="user_identifier" type="string" required>
+  User ID or email address
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "User removed from project successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Remove All Users from Project
+
+Remove all users from a project.
+
+<Warning>
+  This will invalidate all API keys for this project.
+</Warning>
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE "http://localhost:8001/api/v1/projects/{project_identifier}/users" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.delete(
+    f"http://localhost:8001/api/v1/projects/{project_id}/users",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+```
+</CodeGroup>
+
+<ParamField path="project_identifier" type="string" required>
+  Project ID or project name
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "All users removed from project successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Export Project
+
+Export a project configuration to a JSON file.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/projects/{project_identifier}/export" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"output_file": "/path/to/project-export.json"}'
+```
+
+```python Python
+response = requests.post(
+    f"http://localhost:8001/api/v1/projects/{project_id}/export",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"output_file": "/path/to/project-export.json"}
+)
+```
+</CodeGroup>
+
+<ParamField path="project_identifier" type="string" required>
+  Project ID or project name
+</ParamField>
+
+<ParamField body="output_file" type="string" required>
+  Path where the project will be exported
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Project exported successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Search Projects
+
+Search projects by name.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/projects/search" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"search_term": "production"}'
+```
+
+```python Python
+response = requests.post(
+    "http://localhost:8001/api/v1/projects/search",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"search_term": "production"}
+)
+results = response.json()
+```
+</CodeGroup>
+
+<ParamField body="search_term" type="string" required>
+  Search query (matches against project names)
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Search completed successfully",
+  "data": [
+    {
+      "project_id": "770e8400-e29b-41d4-a716-446655440000",
+      "project_name": "production-project",
+      "users_count": 5,
+      "mcp_config_name": "prod-config"
+    }
+  ],
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Complete Workflow Example
+
+Here's a complete example of setting up a project with users:
+
+```bash
+#!/bin/bash
+
+ADMIN_KEY="your-admin-api-key"
+BASE_URL="http://localhost:8001/api/v1"
+
+# 1. Create a configuration
+CONFIG_RESPONSE=$(curl -s -X POST "${BASE_URL}/configs" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"config_name": "team-config"}')
+
+echo "Config created: ${CONFIG_RESPONSE}"
+
+# 2. Add a server to the configuration
+curl -X POST "${BASE_URL}/configs/team-config/servers" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "server_name": "github",
+    "server_command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "description": "GitHub MCP Server"
+  }'
+
+# 3. Create a project
+PROJECT_RESPONSE=$(curl -s -X POST "${BASE_URL}/projects" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"project_name": "engineering-team"}')
+
+echo "Project created: ${PROJECT_RESPONSE}"
+
+# 4. Assign config to project
+curl -X POST "${BASE_URL}/projects/engineering-team/assign-config" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"config_name": "team-config"}'
+
+# 5. Create users
+for email in "alice@example.com" "bob@example.com" "charlie@example.com"; do
+  curl -X POST "${BASE_URL}/users" \
+    -H "Authorization: Bearer ${ADMIN_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{\"email\": \"${email}\"}"
+  
+  # Add user to project
+  curl -X POST "${BASE_URL}/projects/engineering-team/users" \
+    -H "Authorization: Bearer ${ADMIN_KEY}" \
+    -H "Content-Type: application/json" \
+    -d "{\"email\": \"${email}\"}"
+  
+  # Generate API key for user
+  curl -X POST "${BASE_URL}/users/${email}/api-keys" \
+    -H "Authorization: Bearer ${ADMIN_KEY}" \
+    -H "Content-Type: application/json" \
+    -d '{"project_name": "engineering-team"}'
+done
+
+echo "Project setup complete!"
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="User Endpoints" icon="users" href="/api/users">
+    Manage users and their details
+  </Card>
+  <Card title="API Key Endpoints" icon="key" href="/api/api-keys">
+    Generate and manage API keys
+  </Card>
+  <Card title="Configuration Endpoints" icon="gear" href="/api/configurations">
+    Manage MCP configurations
+  </Card>
+  <Card title="System Endpoints" icon="server" href="/api/system">
+    System operations
+  </Card>
+</CardGroup>

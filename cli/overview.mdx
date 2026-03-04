@@ -1,0 +1,218 @@
+---
+title: 'CLI Overview'
+description: 'Introduction to the Secure MCP Gateway command-line interface'
+icon: 'terminal'
+---
+
+## Overview
+
+The Secure MCP Gateway CLI provides comprehensive command-line tools for managing your gateway infrastructure. It enables you to configure MCP servers, manage projects and users, control access with API keys, and maintain system health.
+
+## Installation
+
+### Install via pip
+
+<CodeGroup>
+```bash macOS/Linux
+python -m venv .secure-mcp-gateway-venv
+source .secure-mcp-gateway-venv/bin/activate
+pip install secure-mcp-gateway
+```
+
+```bash Windows
+python -m venv .secure-mcp-gateway-venv
+.secure-mcp-gateway-venv\Scripts\activate
+pip install secure-mcp-gateway
+```
+</CodeGroup>
+
+### Verify Installation
+
+```bash
+secure-mcp-gateway --version
+```
+
+<ResponseExample>
+```
+Enkrypt Secure MCP Gateway CLI v2.1.2
+```
+</ResponseExample>
+
+## Quick Start
+
+### 1. Generate Default Configuration
+
+Create the initial configuration file with default settings:
+
+```bash
+secure-mcp-gateway generate-config
+```
+
+This creates `~/.enkrypt/enkrypt_mcp_config.json` (macOS/Linux) or `%USERPROFILE%\.enkrypt\enkrypt_mcp_config.json` (Windows).
+
+<ResponseExample>
+```
+INFO: Generated default config at ~/.enkrypt/enkrypt_mcp_config.json
+```
+</ResponseExample>
+
+### 2. Install Gateway for Your Client
+
+<Tabs>
+  <Tab title="Claude Desktop">
+    ```bash
+    secure-mcp-gateway install --client claude-desktop
+    ```
+    
+    **Note:** Restart Claude Desktop after installation.
+  </Tab>
+  
+  <Tab title="Cursor">
+    ```bash
+    secure-mcp-gateway install --client cursor
+    ```
+  </Tab>
+  
+  <Tab title="Claude Code">
+    ```bash
+    secure-mcp-gateway install --client claude-code
+    ```
+  </Tab>
+</Tabs>
+
+## CLI Structure
+
+The CLI is organized into command groups:
+
+<CardGroup cols={2}>
+  <Card title="Configuration Commands" icon="gear" href="/cli/config-commands">
+    Manage MCP configurations and servers
+  </Card>
+  <Card title="Project Commands" icon="folder" href="/cli/project-commands">
+    Create and manage projects
+  </Card>
+  <Card title="User Commands" icon="users" href="/cli/user-commands">
+    Manage users and API keys
+  </Card>
+  <Card title="System Commands" icon="server" href="/cli/system-commands">
+    Backup, restore, and health checks
+  </Card>
+</CardGroup>
+
+## Getting Help
+
+### General Help
+
+```bash
+secure-mcp-gateway --help
+```
+
+### Command Group Help
+
+```bash
+secure-mcp-gateway config --help
+secure-mcp-gateway project --help
+secure-mcp-gateway user --help
+secure-mcp-gateway system --help
+```
+
+### Specific Command Help
+
+```bash
+secure-mcp-gateway config add --help
+secure-mcp-gateway user generate-api-key --help
+```
+
+## Global Options
+
+<ParamField path="--version" type="flag">
+  Display the CLI version
+</ParamField>
+
+<ParamField path="--help" type="flag">
+  Display help information
+</ParamField>
+
+<ParamField path="--docker" type="flag">
+  Delegate command to Docker container (requires Docker installation)
+</ParamField>
+
+## Configuration File Location
+
+The CLI reads and writes configuration to:
+
+<Tabs>
+  <Tab title="macOS/Linux">
+    ```
+    ~/.enkrypt/enkrypt_mcp_config.json
+    ```
+  </Tab>
+  
+  <Tab title="Windows">
+    ```
+    %USERPROFILE%\.enkrypt\enkrypt_mcp_config.json
+    ```
+  </Tab>
+  
+  <Tab title="Docker">
+    ```
+    /app/.enkrypt/docker/enkrypt_mcp_config.json
+    ```
+  </Tab>
+</Tabs>
+
+## Common Workflows
+
+### Initial Setup
+
+1. Generate configuration
+2. Install for your MCP client
+3. Add MCP server configurations
+4. Create projects and users
+5. Generate API keys
+
+### Add New Server
+
+1. Add server to configuration
+2. Configure guardrails (optional)
+3. Test with discovery command
+
+### User Management
+
+1. Create user
+2. Add user to project
+3. Generate API key for user/project combination
+
+## Exit Codes
+
+- `0` - Success
+- `1` - General error
+- `2` - Invalid arguments
+
+## Environment Variables
+
+<ParamField path="ENKRYPT_GATEWAY_KEY" type="string">
+  API key for gateway authentication (set by install command)
+</ParamField>
+
+<ParamField path="ENKRYPT_PROJECT_ID" type="string">
+  Project identifier (set by install command)
+</ParamField>
+
+<ParamField path="ENKRYPT_USER_ID" type="string">
+  User identifier (set by install command)
+</ParamField>
+
+<ParamField path="HOST_OS" type="string">
+  Host operating system (Docker only: macos, linux, windows)
+</ParamField>
+
+<ParamField path="HOST_ENKRYPT_HOME" type="string">
+  Path to .enkrypt directory on host (Docker only)
+</ParamField>
+
+## Next Steps
+
+<Card title="Explore Configuration Commands" icon="gear" href="/cli/config-commands">
+  Learn how to manage MCP configurations and servers
+</Card>

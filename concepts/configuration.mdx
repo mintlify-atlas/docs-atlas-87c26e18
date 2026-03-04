@@ -1,0 +1,978 @@
+---
+title: 'Configuration System'
+description: 'Complete reference for enkrypt_mcp_config.json structure and all available settings'
+---
+
+## Configuration File Location
+
+The Secure MCP Gateway uses a JSON configuration file stored at:
+
+<CodeGroup>
+
+```bash macOS/Linux
+~/.enkrypt/enkrypt_mcp_config.json
+```
+
+```bash Windows
+%USERPROFILE%\.enkrypt\enkrypt_mcp_config.json
+```
+
+```bash Docker
+/app/.enkrypt/docker/enkrypt_mcp_config.json
+
+# Mounted from host:
+~/.enkrypt/docker/enkrypt_mcp_config.json
+```
+
+</CodeGroup>
+
+## Configuration Structure
+
+The configuration file has five main sections:
+
+1. **admin_apikey** - Administrative API key for REST API
+2. **common_mcp_gateway_config** - Global gateway settings
+3. **plugins** - Plugin configurations (auth, guardrails, telemetry)
+4. **mcp_configs** - MCP server configurations
+5. **projects** - Project definitions
+6. **users** - User definitions
+7. **apikeys** - API key mappings
+
+## Full Configuration Schema
+
+**Location:** `src/secure_mcp_gateway/example_enkrypt_mcp_config.json`
+
+```json
+{
+  "admin_apikey": "256-CHARACTER-RANDOM-STRING-GENERATED-AUTOMATICALLY",
+  "common_mcp_gateway_config": {
+    "enkrypt_log_level": "INFO",
+    "enkrypt_use_remote_mcp_config": false,
+    "enkrypt_remote_mcp_gateway_name": "enkrypt-secure-mcp-gateway-1",
+    "enkrypt_remote_mcp_gateway_version": "v1",
+    "enkrypt_mcp_use_external_cache": false,
+    "enkrypt_cache_host": "localhost",
+    "enkrypt_cache_port": 6379,
+    "enkrypt_cache_db": 0,
+    "enkrypt_cache_password": null,
+    "enkrypt_tool_cache_expiration": 4,
+    "enkrypt_gateway_cache_expiration": 24,
+    "enkrypt_async_input_guardrails_enabled": false,
+    "enkrypt_async_output_guardrails_enabled": false,
+    "timeout_settings": {
+      "default_timeout": 30,
+      "guardrail_timeout": 15,
+      "auth_timeout": 10,
+      "tool_execution_timeout": 60,
+      "discovery_timeout": 20,
+      "cache_timeout": 5,
+      "connectivity_timeout": 2,
+      "escalation_policies": {
+        "warn_threshold": 0.8,
+        "timeout_threshold": 1.0,
+        "fail_threshold": 1.2
+      }
+    }
+  },
+  "plugins": {
+    "auth": {
+      "provider": "local_apikey",
+      "config": {}
+    },
+    "guardrails": {
+      "provider": "enkrypt",
+      "config": {
+        "api_key": "YOUR_ENKRYPT_API_KEY",
+        "base_url": "https://api.enkryptai.com"
+      }
+    },
+    "telemetry": {
+      "provider": "opentelemetry",
+      "config": {
+        "enabled": true,
+        "url": "http://localhost:4317",
+        "insecure": true
+      }
+    }
+  },
+  "mcp_configs": {
+    "UNIQUE_MCP_CONFIG_ID": {
+      "mcp_config_name": "default_config",
+      "mcp_config": [
+        {
+          "server_name": "github_server",
+          "description": "GitHub MCP Server",
+          "config": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-github"],
+            "env": {
+              "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_xxxxxxxxxxxx"
+            }
+          },
+          "oauth_config": {
+            "enabled": false
+          },
+          "tools": {},
+          "enable_server_info_validation": false,
+          "tool_guardrails_policy": {
+            "enabled": false,
+            "policy_name": "Sample Airline Guardrail",
+            "block": ["policy_violation"]
+          },
+          "input_guardrails_policy": {
+            "enabled": false,
+            "policy_name": "Sample Airline Guardrail",
+            "additional_config": {
+              "pii_redaction": false
+            },
+            "block": [
+              "policy_violation",
+              "injection_attack",
+              "topic_detector",
+              "nsfw",
+              "toxicity",
+              "pii",
+              "keyword_detector",
+              "bias",
+              "sponge_attack"
+            ]
+          },
+          "output_guardrails_policy": {
+            "enabled": false,
+            "policy_name": "Sample Airline Guardrail",
+            "additional_config": {
+              "relevancy": false,
+              "hallucination": false,
+              "adherence": false
+            },
+            "block": ["policy_violation"]
+          }
+        }
+      ]
+    }
+  },
+  "projects": {
+    "UNIQUE_PROJECT_ID": {
+      "project_name": "default_project",
+      "mcp_config_id": "UNIQUE_MCP_CONFIG_ID",
+      "users": ["UNIQUE_USER_ID"],
+      "created_at": "2025-01-01T00:00:00.000000"
+    }
+  },
+  "users": {
+    "UNIQUE_USER_ID": {
+      "email": "default@example.com",
+      "created_at": "2025-01-01T00:00:00.000000"
+    }
+  },
+  "apikeys": {
+    "UNIQUE_GATEWAY_KEY": {
+      "project_id": "UNIQUE_PROJECT_ID",
+      "user_id": "UNIQUE_USER_ID",
+      "created_at": "2025-01-01T00:00:00.000000"
+    }
+  }
+}
+```
+
+## Section Details
+
+### 1. Admin API Key
+
+**Purpose:** Secures the REST API endpoints for administrative operations.
+
+```json
+{
+  "admin_apikey": "256-CHARACTER-RANDOM-STRING"
+}
+```
+
+**Details:**
+- Automatically generated during `secure-mcp-gateway generate-config`
+- 256 characters long for maximum security
+- Used for all `/api/v1/*` endpoints (except `/health`)
+- Required in `Authorization: Bearer <admin_apikey>` header
+
+**Usage:**
+```bash
+curl -X GET http://localhost:8001/api/v1/configs \
+  -H "Authorization: Bearer YOUR_ADMIN_API_KEY"
+```
+
+### 2. Common Gateway Config
+
+**Location:** `common_mcp_gateway_config`
+
+#### Logging Settings
+
+```json
+{
+  "enkrypt_log_level": "INFO"
+}
+```
+
+**Options:** `DEBUG`, `INFO`, `WARNING`, `ERROR`
+
+**Source:** `src/secure_mcp_gateway/gateway.py:161`
+
+<Warning>
+Setting `DEBUG` level will output sensitive information in logs. Only use for troubleshooting.
+</Warning>
+
+#### Remote Config Settings
+
+```json
+{
+  "enkrypt_use_remote_mcp_config": false,
+  "enkrypt_remote_mcp_gateway_name": "enkrypt-secure-mcp-gateway-1",
+  "enkrypt_remote_mcp_gateway_version": "v1"
+}
+```
+
+**Details:**
+- `enkrypt_use_remote_mcp_config`: Load config from Enkrypt cloud (future feature)
+- `enkrypt_remote_mcp_gateway_name`: Gateway identifier in Enkrypt
+- `enkrypt_remote_mcp_gateway_version`: Config version
+
+<Info>
+Remote config is not yet available. Current version loads from local file.
+</Info>
+
+#### Cache Settings
+
+**Location:** `src/secure_mcp_gateway/client.py:31`
+
+```json
+{
+  "enkrypt_mcp_use_external_cache": false,
+  "enkrypt_cache_host": "localhost",
+  "enkrypt_cache_port": 6379,
+  "enkrypt_cache_db": 0,
+  "enkrypt_cache_password": null,
+  "enkrypt_tool_cache_expiration": 4,
+  "enkrypt_gateway_cache_expiration": 24
+}
+```
+
+**Cache Types:**
+
+| Setting | Description | Default | Unit |
+|---------|-------------|---------|------|
+| `enkrypt_mcp_use_external_cache` | Use Redis/KeyDB instead of in-memory | `false` | boolean |
+| `enkrypt_cache_host` | Redis/KeyDB hostname | `localhost` | string |
+| `enkrypt_cache_port` | Redis/KeyDB port | `6379` | integer |
+| `enkrypt_cache_db` | Redis database number | `0` | integer |
+| `enkrypt_cache_password` | Redis password | `null` | string |
+| `enkrypt_tool_cache_expiration` | Tool discovery cache duration | `4` | hours |
+| `enkrypt_gateway_cache_expiration` | Gateway config cache duration | `24` | hours |
+
+**Cache Strategy:**
+
+1. **Local cache** (default): In-memory dictionary, lost on restart
+2. **External cache**: Redis/KeyDB, shared across instances
+
+<Tip>
+For production with multiple gateway instances, use external cache to share discovered tools and configs.
+</Tip>
+
+#### Async Guardrails
+
+```json
+{
+  "enkrypt_async_input_guardrails_enabled": false,
+  "enkrypt_async_output_guardrails_enabled": false
+}
+```
+
+**Details:**
+- `true`: Run guardrails asynchronously (don't block request)
+- `false`: Run guardrails synchronously (block until checked)
+
+<Warning>
+Async guardrails reduce latency but may allow unsafe requests through before blocking takes effect.
+</Warning>
+
+#### Timeout Settings
+
+**Location:** `src/secure_mcp_gateway/services/timeout/timeout_manager.py`
+
+```json
+{
+  "timeout_settings": {
+    "default_timeout": 30,
+    "guardrail_timeout": 15,
+    "auth_timeout": 10,
+    "tool_execution_timeout": 60,
+    "discovery_timeout": 20,
+    "cache_timeout": 5,
+    "connectivity_timeout": 2,
+    "escalation_policies": {
+      "warn_threshold": 0.8,
+      "timeout_threshold": 1.0,
+      "fail_threshold": 1.2
+    }
+  }
+}
+```
+
+**Timeout Types:**
+
+| Operation | Default (s) | Description |
+|-----------|-------------|-------------|
+| `default_timeout` | 30 | Generic operation timeout |
+| `guardrail_timeout` | 15 | Guardrail API check timeout |
+| `auth_timeout` | 10 | Authentication validation timeout |
+| `tool_execution_timeout` | 60 | MCP server tool call timeout |
+| `discovery_timeout` | 20 | Tool discovery timeout |
+| `cache_timeout` | 5 | Cache operation timeout |
+| `connectivity_timeout` | 2 | Network connectivity check |
+
+**Escalation Policies:**
+
+- `warn_threshold` (0.8): Log warning at 80% of timeout
+- `timeout_threshold` (1.0): Timeout at 100% of configured time
+- `fail_threshold` (1.2): Hard failure at 120% of timeout
+
+### 3. Plugins Configuration
+
+#### Auth Plugin
+
+**Location:** `src/secure_mcp_gateway/plugins/auth/`
+
+```json
+{
+  "plugins": {
+    "auth": {
+      "provider": "local_apikey",
+      "config": {}
+    }
+  }
+}
+```
+
+**Available Providers:**
+
+| Provider | Description | Config Required |
+|----------|-------------|----------------|
+| `local_apikey` | Validates API keys from local config file | None |
+| `enkrypt` | Remote authentication via Enkrypt API | `api_key`, `base_url` |
+
+**Example - Enkrypt Provider:**
+
+```json
+{
+  "auth": {
+    "provider": "enkrypt",
+    "config": {
+      "api_key": "YOUR_ENKRYPT_API_KEY",
+      "base_url": "https://api.enkryptai.com"
+    }
+  }
+}
+```
+
+#### Guardrails Plugin
+
+**Location:** `src/secure_mcp_gateway/plugins/guardrails/`
+
+```json
+{
+  "plugins": {
+    "guardrails": {
+      "provider": "enkrypt",
+      "config": {
+        "api_key": "YOUR_ENKRYPT_API_KEY",
+        "base_url": "https://api.enkryptai.com"
+      }
+    }
+  }
+}
+```
+
+**Available Providers:**
+
+| Provider | Description | Features |
+|----------|-------------|----------|
+| `enkrypt` | Production Enkrypt API | PII, toxicity, NSFW, injection, policies, relevancy, adherence, hallucination |
+| `openai` | OpenAI Moderation API | Toxicity, NSFW detection |
+| `custom_keyword` | Simple keyword blocking | Configurable keyword list |
+
+**Example - Custom Keyword Provider:**
+
+```json
+{
+  "guardrails": {
+    "provider": "custom_keyword",
+    "config": {
+      "blocked_keywords": ["confidential", "secret", "internal"]
+    }
+  }
+}
+```
+
+#### Telemetry Plugin
+
+**Location:** `src/secure_mcp_gateway/plugins/telemetry/`
+
+```json
+{
+  "plugins": {
+    "telemetry": {
+      "provider": "opentelemetry",
+      "config": {
+        "enabled": true,
+        "url": "http://localhost:4317",
+        "insecure": true
+      }
+    }
+  }
+}
+```
+
+**Available Providers:**
+
+| Provider | Description | Exports |
+|----------|-------------|----------|
+| `opentelemetry` | Full OpenTelemetry with OTLP | Logs (Loki), Traces (Jaeger), Metrics (Prometheus) |
+| `stdout` | Simple stdout logging | Console logs only |
+
+**OpenTelemetry Config:**
+
+```json
+{
+  "telemetry": {
+    "provider": "opentelemetry",
+    "config": {
+      "enabled": true,
+      "url": "http://otel-collector:4317",
+      "insecure": true,
+      "service_name": "secure-mcp-gateway",
+      "environment": "production"
+    }
+  }
+}
+```
+
+### 4. MCP Configs
+
+**Location:** `mcp_configs.<config_id>.mcp_config[]`
+
+Defines the MCP servers that the gateway will proxy to.
+
+#### Server Entry Structure
+
+```json
+{
+  "server_name": "github_server",
+  "description": "GitHub MCP Server",
+  "config": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "env": {
+      "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_xxxxxxxxxxxx"
+    }
+  },
+  "oauth_config": { ... },
+  "tools": {},
+  "enable_server_info_validation": false,
+  "tool_guardrails_policy": { ... },
+  "input_guardrails_policy": { ... },
+  "output_guardrails_policy": { ... }
+}
+```
+
+#### Server Config
+
+**Required fields:**
+
+```json
+{
+  "config": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "env": {
+      "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_xxxxxxxxxxxx"
+    }
+  }
+}
+```
+
+**Examples:**
+
+<CodeGroup>
+
+```json Python Server
+{
+  "config": {
+    "command": "python",
+    "args": ["/path/to/server.py"]
+  }
+}
+```
+
+```json Node.js Server
+{
+  "config": {
+    "command": "node",
+    "args": ["/path/to/server.js"]
+  }
+}
+```
+
+```json Docker Server
+{
+  "config": {
+    "command": "docker",
+    "args": ["run", "-i", "my-mcp-server"]
+  }
+}
+```
+
+```json Remote Server (mcp-remote)
+{
+  "config": {
+    "command": "npx",
+    "args": [
+      "-y",
+      "@modelcontextprotocol/mcp-remote",
+      "client",
+      "http://remote-server:8080"
+    ]
+  }
+}
+```
+
+</CodeGroup>
+
+#### OAuth Configuration
+
+**Location:** `src/secure_mcp_gateway/services/oauth/`
+
+Full OAuth 2.0/2.1 configuration for server authentication:
+
+```json
+{
+  "oauth_config": {
+    "enabled": true,
+    "is_remote": false,
+    "OAUTH_VERSION": "2.1",
+    "OAUTH_GRANT_TYPE": "client_credentials",
+    "OAUTH_CLIENT_ID": "your-client-id",
+    "OAUTH_CLIENT_SECRET": "your-client-secret",
+    "OAUTH_TOKEN_URL": "https://auth.example.com/oauth/token",
+    "OAUTH_AUTHORIZATION_URL": "https://auth.example.com/authorize",
+    "OAUTH_REDIRECT_URI": "http://localhost:8080/callback",
+    "OAUTH_AUDIENCE": "https://api.example.com",
+    "OAUTH_ORGANIZATION": "your-org-id",
+    "OAUTH_SCOPE": "read write",
+    "OAUTH_RESOURCE": "https://resource.example.com",
+    "OAUTH_USE_PKCE": false,
+    "OAUTH_CODE_CHALLENGE_METHOD": "S256",
+    "OAUTH_TOKEN_EXPIRY_BUFFER": 300,
+    "OAUTH_USE_BASIC_AUTH": true,
+    "OAUTH_ENFORCE_HTTPS": true,
+    "OAUTH_TOKEN_IN_HEADER_ONLY": true,
+    "OAUTH_VALIDATE_SCOPES": true,
+    "OAUTH_USE_MTLS": false,
+    "OAUTH_CLIENT_CERT_PATH": null,
+    "OAUTH_CLIENT_KEY_PATH": null,
+    "OAUTH_CA_BUNDLE_PATH": null,
+    "OAUTH_REVOCATION_URL": null,
+    "OAUTH_ADDITIONAL_PARAMS": {},
+    "OAUTH_CUSTOM_HEADERS": {}
+  }
+}
+```
+
+**Key OAuth Settings:**
+
+| Setting | Description | Required |
+|---------|-------------|----------|
+| `OAUTH_VERSION` | OAuth version (`2.0` or `2.1`) | Yes |
+| `OAUTH_GRANT_TYPE` | Grant type (`client_credentials`, `authorization_code`) | Yes |
+| `OAUTH_CLIENT_ID` | OAuth client ID | Yes |
+| `OAUTH_CLIENT_SECRET` | OAuth client secret | Yes |
+| `OAUTH_TOKEN_URL` | Token endpoint URL | Yes |
+| `OAUTH_SCOPE` | Requested scopes (space-separated) | No |
+| `OAUTH_AUDIENCE` | Token audience | No |
+| `OAUTH_USE_MTLS` | Enable mutual TLS (RFC 8705) | No |
+| `OAUTH_CLIENT_CERT_PATH` | Client certificate for mTLS | If mTLS |
+| `OAUTH_CLIENT_KEY_PATH` | Client key for mTLS | If mTLS |
+
+<Info>
+For detailed OAuth setup, see the [OAuth Authentication Guide](/guides/oauth-setup).
+</Info>
+
+#### Tools Configuration
+
+**Option 1: Empty (Tool Discovery)**
+
+```json
+{
+  "tools": {}
+}
+```
+
+Gateway will discover tools automatically via `list_tools()` and cache them.
+
+**Option 2: Explicit Tool Definition**
+
+```json
+{
+  "tools": {
+    "search_repositories": {
+      "description": "Search GitHub repositories",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"},
+          "max_results": {"type": "integer"}
+        },
+        "required": ["query"]
+      }
+    }
+  }
+}
+```
+
+Gateway will only expose explicitly defined tools (no discovery).
+
+<Tip>
+Use explicit tool definition to restrict which tools are accessible through the gateway.
+</Tip>
+
+#### Guardrails Policies
+
+**Tool Guardrails:**
+
+Applied before tool name validation:
+
+```json
+{
+  "tool_guardrails_policy": {
+    "enabled": true,
+    "policy_name": "Sample Airline Guardrail",
+    "block": ["policy_violation"]
+  }
+}
+```
+
+**Input Guardrails:**
+
+Applied before sending request to MCP server:
+
+```json
+{
+  "input_guardrails_policy": {
+    "enabled": true,
+    "policy_name": "Sample Airline Guardrail",
+    "additional_config": {
+      "pii_redaction": true
+    },
+    "block": [
+      "policy_violation",
+      "injection_attack",
+      "topic_detector",
+      "nsfw",
+      "toxicity",
+      "pii",
+      "keyword_detector",
+      "bias",
+      "sponge_attack"
+    ]
+  }
+}
+```
+
+**Output Guardrails:**
+
+Applied after receiving response from MCP server:
+
+```json
+{
+  "output_guardrails_policy": {
+    "enabled": true,
+    "policy_name": "Sample Airline Guardrail",
+    "additional_config": {
+      "relevancy": true,
+      "hallucination": true,
+      "adherence": true
+    },
+    "block": [
+      "policy_violation",
+      "nsfw",
+      "toxicity"
+    ]
+  }
+}
+```
+
+**Block Conditions:**
+
+| Condition | Trigger | Stage |
+|-----------|---------|-------|
+| `policy_violation` | Custom policy rules violated | Input/Output |
+| `injection_attack` | SQL/command/prompt injection detected | Input |
+| `topic_detector` | Off-topic content detected | Input/Output |
+| `nsfw` | NSFW content detected | Input/Output |
+| `toxicity` | Toxic language detected | Input/Output |
+| `pii` | PII detected | Input/Output |
+| `keyword_detector` | Blocked keyword found | Input/Output |
+| `bias` | Biased content detected | Input/Output |
+| `sponge_attack` | Resource exhaustion attempt | Input |
+
+**Additional Config:**
+
+| Setting | Description | Stage |
+|---------|-------------|-------|
+| `pii_redaction` | Redact PII before sending to server | Input |
+| `relevancy` | Check response relevancy to request | Output |
+| `hallucination` | Detect hallucinated information | Output |
+| `adherence` | Verify response follows instructions | Output |
+
+<Warning>
+Enabling PII redaction will replace detected PII with anonymized tokens. The gateway automatically de-anonymizes the response.
+</Warning>
+
+### 5. Projects
+
+**Purpose:** Group users with shared MCP configurations.
+
+```json
+{
+  "projects": {
+    "PROJECT_UUID": {
+      "project_name": "Production Environment",
+      "mcp_config_id": "MCP_CONFIG_UUID",
+      "users": ["USER_UUID_1", "USER_UUID_2"],
+      "created_at": "2025-01-01T00:00:00.000000"
+    }
+  }
+}
+```
+
+**Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `project_name` | string | Human-readable project name |
+| `mcp_config_id` | UUID | Reference to mcp_configs entry |
+| `users` | array | List of user UUIDs in this project |
+| `created_at` | ISO 8601 | Project creation timestamp |
+
+### 6. Users
+
+**Purpose:** Define gateway users.
+
+```json
+{
+  "users": {
+    "USER_UUID": {
+      "email": "user@example.com",
+      "created_at": "2025-01-01T00:00:00.000000"
+    }
+  }
+}
+```
+
+**Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `email` | string | User email address |
+| `created_at` | ISO 8601 | User creation timestamp |
+
+### 7. API Keys
+
+**Purpose:** Map API keys to project/user combinations.
+
+```json
+{
+  "apikeys": {
+    "YOUR_GATEWAY_API_KEY": {
+      "project_id": "PROJECT_UUID",
+      "user_id": "USER_UUID",
+      "created_at": "2025-01-01T00:00:00.000000"
+    }
+  }
+}
+```
+
+**Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `project_id` | UUID | Reference to projects entry |
+| `user_id` | UUID | Reference to users entry |
+| `created_at` | ISO 8601 | API key creation timestamp |
+
+**API Key Format:**
+
+Generated by `secure_mcp_gateway.utils.generate_custom_id()`:
+- 34 random alphanumeric characters
+- URL-safe (uses `_` and `-`)
+- Example: `2W8UupCkazk4SsOcSu_1hAbiOgPdv0g-nN9Ntf`
+
+## Configuration Loading
+
+**Location:** `src/secure_mcp_gateway/utils.py:190`
+
+**Priority order:**
+
+1. Docker config path (if `is_docker()` returns True)
+   - `/app/.enkrypt/docker/enkrypt_mcp_config.json`
+2. User config path
+   - `~/.enkrypt/enkrypt_mcp_config.json`
+3. Example config path (from package)
+   - `site-packages/secure_mcp_gateway/example_enkrypt_mcp_config.json`
+4. Default config (hardcoded in `consts.py`)
+
+```python
+def get_common_config(print_debug=False) -> Dict:
+    # Try loading in priority order
+    if is_docker():
+        config = load_config(DOCKER_CONFIG_PATH)
+    if not config:
+        config = load_config(CONFIG_PATH)
+    if not config:
+        config = load_config(EXAMPLE_CONFIG_PATH)
+    if not config:
+        config = DEFAULT_COMMON_CONFIG
+    
+    return config
+```
+
+## Configuration Management
+
+### CLI Commands
+
+See [CLI Commands Reference](/cli/overview) for complete list.
+
+**Common operations:**
+
+```bash
+# Generate new config
+secure-mcp-gateway generate-config
+
+# Add server to config
+secure-mcp-gateway config add-server --config-name "my_config" \
+  --server-name "github" \
+  --server-command "npx" \
+  --args="-y,@modelcontextprotocol/server-github"
+
+# Update guardrails
+secure-mcp-gateway config update-server-guardrails <config_id> github \
+  --input-policy '{"enabled": true, "policy_name": "My Policy"}'
+
+# Backup config
+secure-mcp-gateway system backup --output /path/to/backup.json
+
+# Restore config
+secure-mcp-gateway system restore --input /path/to/backup.json
+```
+
+### REST API
+
+**Endpoint:** `/api/v1/configs`
+
+**Authentication:** Admin API key required
+
+```bash
+# List all configs
+curl -X GET http://localhost:8001/api/v1/configs \
+  -H "Authorization: Bearer YOUR_ADMIN_API_KEY"
+
+# Get specific config
+curl -X GET http://localhost:8001/api/v1/configs/<config_id> \
+  -H "Authorization: Bearer YOUR_ADMIN_API_KEY"
+
+# Update config
+curl -X PUT http://localhost:8001/api/v1/configs/<config_id> \
+  -H "Authorization: Bearer YOUR_ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"mcp_config_name": "updated_config"}'
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use External Cache for Production">
+    For multi-instance deployments, enable external cache (Redis/KeyDB) to share tool discoveries and configs:
+    
+    ```json
+    {
+      "enkrypt_mcp_use_external_cache": true,
+      "enkrypt_cache_host": "redis.example.com",
+      "enkrypt_cache_port": 6379
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Secure Environment Variables">
+    Never hardcode secrets in config. Use environment variable references:
+    
+    ```json
+    {
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Enable Guardrails Selectively">
+    Only enable guardrails on sensitive servers to minimize latency:
+    
+    ```json
+    {
+      "server_name": "public_api_server",
+      "input_guardrails_policy": {"enabled": false}
+    },
+    {
+      "server_name": "internal_database_server",
+      "input_guardrails_policy": {"enabled": true}
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Backup Regularly">
+    Schedule automatic backups of your configuration:
+    
+    ```bash
+    # Cron job example
+    0 2 * * * secure-mcp-gateway system backup --output /backups/config-$(date +\%Y\%m\%d).json
+    ```
+  </Accordion>
+  
+  <Accordion title="Explicit Tool Definitions">
+    For production, explicitly define allowed tools instead of relying on discovery:
+    
+    ```json
+    {
+      "tools": {
+        "search_repositories": { ... },
+        "get_file_contents": { ... }
+      }
+    }
+    ```
+    
+    This prevents new tools from being auto-discovered and exposed.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/concepts/authentication">
+    Learn about API keys, projects, and users
+  </Card>
+  <Card title="Guardrails" icon="shield" href="/features/guardrails">
+    Configure input and output protection
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/cli/overview">
+    Complete CLI commands documentation
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    REST API endpoint documentation
+  </Card>
+</CardGroup>

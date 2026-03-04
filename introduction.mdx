@@ -1,0 +1,233 @@
+---
+title: "Introduction"
+description: "Secure MCP Gateway is a production-ready security middleware that sits between your MCP clients and servers, providing authentication, guardrails, caching, and observability."
+---
+
+## What is Secure MCP Gateway?
+
+Secure MCP Gateway is an open-source security middleware built by Enkrypt AI that acts as a protective layer between MCP clients (like Claude Desktop, Cursor, or Claude Code) and MCP servers. It functions as both an MCP server (to clients) and an MCP client (to actual servers), providing enterprise-grade security, monitoring, and control.
+
+<Note>
+  The gateway is particularly valuable when connecting AI assistants to sensitive tools, APIs, or internal systems where security, compliance, and observability are critical.
+</Note>
+
+## Why use Secure MCP Gateway?
+
+When you connect AI assistants directly to MCP servers, you expose yourself to several risks:
+
+- **No authentication layer** - Anyone with access to your client can invoke tools
+- **Unfiltered input/output** - Malicious prompts or data leaks can occur
+- **Limited visibility** - No centralized logging or monitoring of tool usage
+- **No policy enforcement** - Cannot block sensitive operations or enforce compliance rules
+- **Performance issues** - Repeated tool discovery and execution without caching
+
+Secure MCP Gateway solves these problems by providing a security and management layer that's transparent to your MCP clients.
+
+## Key features
+
+### Authentication and authorization
+
+- **API key authentication** - Each project/user combination gets a unique gateway key
+- **Project-based isolation** - Different teams can use different MCP configurations
+- **OAuth 2.0/2.1 support** - Authenticate gateway connections to remote MCP servers with client credentials, mTLS, and automatic token refresh
+- **Admin API security** - Separate admin API keys for management operations
+
+### Security guardrails
+
+Protect both input (before sending to servers) and output (before returning to clients):
+
+**Input protection:**
+- PII detection and redaction
+- Injection attack prevention (prompt injection, SQL injection)
+- Toxicity and NSFW filtering
+- Topic detection (block off-topic requests)
+- Keyword blocking
+- Policy violation detection
+- Bias detection
+
+**Output protection:**
+- All input protections
+- Relevancy validation
+- Adherence checking
+- Hallucination detection
+- Automatic PII de-anonymization
+
+<Info>
+  Guardrails are powered by Enkrypt AI's detection API, which provides state-of-the-art ML models for content safety. You can also use OpenAI moderation or custom keyword filters.
+</Info>
+
+### Dynamic tool discovery and management
+
+- **Automatic tool discovery** - Gateway discovers available tools from MCP servers
+- **Tool restriction** - Explicitly allow only specific tools per server
+- **Metadata caching** - Cache discovered tools for 4 hours (configurable)
+- **Server metadata** - Track server versions, descriptions, and capabilities
+
+### Performance optimization
+
+- **Local caching** - In-memory cache with thread-safe operations
+- **External caching** - Redis/KeyDB support for distributed deployments
+- **Configurable expiration** - 4 hours for tools, 24 hours for configs (customizable)
+- **Cache management** - Clear cache by server, type, or all entries
+
+### Observability and monitoring
+
+- **OpenTelemetry integration** - Full distributed tracing support
+- **Structured logging** - JSON logs with request context using `structlog`
+- **Prometheus metrics** - Request rates, error rates, latencies, cache stats
+- **Grafana dashboards** - Pre-built dashboards for visualization
+- **Timeout tracking** - Monitor slow operations with escalation policies
+
+### Flexible deployment
+
+- **Multiple transports** - stdio (for local clients) or HTTP (for remote deployments)
+- **Docker support** - Pre-built images with Python, Node.js, and all dependencies
+- **CLI management** - Comprehensive command-line interface with 100+ commands
+- **REST API** - FastAPI-based management API on port 8001
+- **Plugin architecture** - Extensible auth, guardrails, and telemetry providers
+
+## Architecture overview
+
+```
+┌─────────────┐
+│ MCP Client  │ (Claude Desktop, Cursor, Claude Code)
+└──────┬──────┘
+       │ 1. Connect with API key
+       ▼
+┌──────────────────────────────────────┐
+│   Secure MCP Gateway (Port 8000)     │
+│                                      │
+│  ┌────────────────────────────────┐ │
+│  │ Authentication Plugin          │ │
+│  │ • Validate API key             │ │
+│  │ • Load project configuration   │ │
+│  └────────────────────────────────┘ │
+│                                      │
+│  ┌────────────────────────────────┐ │
+│  │ Input Guardrails (Optional)    │ │
+│  │ • PII redaction                │ │
+│  │ • Injection detection          │ │
+│  │ • Policy enforcement           │ │
+│  └────────────────────────────────┘ │
+│                                      │
+│  ┌────────────────────────────────┐ │
+│  │ Cache Layer                    │ │
+│  │ • Tool discovery cache         │ │
+│  │ • Configuration cache          │ │
+│  │ • OAuth token cache            │ │
+│  └────────────────────────────────┘ │
+│                                      │
+│  ┌────────────────────────────────┐ │
+│  │ Gateway Client                 │ │
+│  │ • Forward requests to servers  │ │
+│  │ • Handle OAuth authentication  │ │
+│  │ • Manage server connections    │ │
+│  └────────────────────────────────┘ │
+│                                      │
+│  ┌────────────────────────────────┐ │
+│  │ Output Guardrails (Optional)   │ │
+│  │ • PII de-anonymization         │ │
+│  │ • Relevancy check              │ │
+│  │ • Hallucination detection      │ │
+│  └────────────────────────────────┘ │
+│                                      │
+│  ┌────────────────────────────────┐ │
+│  │ Telemetry Plugin               │ │
+│  │ • OpenTelemetry traces         │ │
+│  │ • Prometheus metrics           │ │
+│  │ • Structured logging           │ │
+│  └────────────────────────────────┘ │
+└───────────┬──────────────────────────┘
+            │
+            ▼
+┌───────────────────────────────────────┐
+│  MCP Servers                          │
+│  • GitHub MCP Server                  │
+│  • File System MCP Server             │
+│  • Database MCP Server                │
+│  • Custom MCP Servers                 │
+└───────────────────────────────────────┘
+```
+
+## How it works
+
+The Secure MCP Gateway sits transparently between your MCP client and servers:
+
+<Steps>
+  <Step title="Client connects with API key">
+    Your MCP client (Claude Desktop, Cursor, etc.) connects to the gateway with a unique API key passed in the request context.
+  </Step>
+  
+  <Step title="Authentication and config loading">
+    The gateway validates the API key, identifies the project and user, and loads the appropriate MCP configuration (from local file or remote API).
+  </Step>
+  
+  <Step title="Optional input guardrails">
+    If enabled, the gateway validates the request against configured policies. Requests violating policies can be blocked or logged.
+  </Step>
+  
+  <Step title="Request forwarding">
+    The gateway client forwards the request to the appropriate MCP server using stdio transport, handling OAuth token injection if configured.
+  </Step>
+  
+  <Step title="Server response">
+    The MCP server processes the request and returns the response to the gateway.
+  </Step>
+  
+  <Step title="Optional output guardrails">
+    If enabled, the gateway validates the response, including relevancy checks, hallucination detection, and PII de-anonymization.
+  </Step>
+  
+  <Step title="Return to client">
+    The gateway returns the validated response to the MCP client.
+  </Step>
+</Steps>
+
+Throughout this process, the gateway logs all operations, tracks metrics, and exports traces to your observability stack.
+
+## Use cases
+
+### Enterprise deployments
+
+- **Multi-tenant SaaS** - Isolate different customers with project-based configurations
+- **Compliance requirements** - Enforce PII redaction and content policies
+- **Audit logging** - Track all tool invocations for security audits
+
+### Development teams
+
+- **Testing guardrails** - Validate security policies before production
+- **Tool management** - Centralize MCP server configurations across teams
+- **Performance monitoring** - Identify slow servers and optimize caching
+
+### Security research
+
+- **Attack simulation** - Test MCP security with included "bad MCP" test servers
+- **Policy development** - Experiment with different guardrail configurations
+- **Vulnerability testing** - Validate defenses against prompt injection, SSRF, RCE, etc.
+
+## Version and compatibility
+
+- **Current version:** 2.1.7
+- **Python requirement:** 3.8 or higher (3.11+ recommended)
+- **MCP SDK:** 1.10.1 or higher
+- **Supported clients:** Claude Desktop, Cursor, Claude Code, any MCP-compatible client
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Get the gateway running in 5-10 minutes
+  </Card>
+  
+  <Card title="Installation" icon="download" href="/installation">
+    Detailed installation instructions for all methods
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/concepts/configuration">
+    Learn how to configure servers and guardrails
+  </Card>
+  
+  <Card title="CLI reference" icon="terminal" href="/cli/overview">
+    Complete CLI command documentation
+  </Card>
+</CardGroup>

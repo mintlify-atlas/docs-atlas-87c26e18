@@ -1,0 +1,496 @@
+---
+title: Discover Tools
+description: Use enkrypt_discover_all_tools to find and cache available tools from MCP servers.
+---
+
+## Overview
+
+The `enkrypt_discover_all_tools` tool discovers available tools from a specific MCP server or all servers, validates them through security guardrails, and caches the results for future use.
+
+<Info>
+Tool discovery happens automatically when you use `enkrypt_list_all_servers` with `discover_tools=true`. Use this tool to force re-discovery or troubleshoot specific servers.
+</Info>
+
+## Tool Signature
+
+```python
+async def enkrypt_discover_all_tools(
+    ctx: Context,
+    server_name: str = None
+) -> dict
+```
+
+### Parameters
+
+<ParamField path="ctx" type="Context" required>
+  MCP context (automatically provided by the client)
+</ParamField>
+
+<ParamField path="server_name" type="str" default="None">
+  Name of the server to discover tools for.
+  
+  - `None` or `"null"`: Discovers tools for **all** servers
+  - Specific name (e.g., `"github"`): Discovers tools for that server only
+</ParamField>
+
+### Return Value
+
+<ResponseField name="status" type="string" required>
+  Operation status: `"success"` or `"error"`
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable description of the result
+</ResponseField>
+
+<ResponseField name="tools" type="object">
+  Dictionary or list of discovered tools (single server mode)
+</ResponseField>
+
+<ResponseField name="available_servers" type="object">
+  Dictionary of servers with their tools (all servers mode)
+</ResponseField>
+
+<ResponseField name="source" type="string">
+  Where tools came from: `"config"`, `"cache"`, or `"discovery"`
+</ResponseField>
+
+<ResponseField name="blocked_tools" type="array">
+  List of tools blocked by security guardrails
+</ResponseField>
+
+<ResponseField name="blocked_count" type="integer">
+  Number of tools blocked
+</ResponseField>
+
+## Usage Examples
+
+### Discover Tools for a Specific Server
+
+<CodeGroup>
+
+```text Claude Chat
+User: Discover all tools for the github server
+
+Claude: I'll discover what tools are available from the GitHub server.
+[Uses enkrypt_discover_all_tools with server_name="github"]
+
+Found 8 tools:
+- create_issue
+- list_issues
+- create_pull_request
+- search_repositories
+...
+```
+
+```python Python SDK
+result = await session.call_tool(
+    "enkrypt_discover_all_tools",
+    arguments={"server_name": "github"}
+)
+
+tools = result["tools"]
+print(f"Discovered {len(tools)} tools from cache={result['source']=='cache'}")
+```
+
+</CodeGroup>
+
+### Discover Tools for All Servers
+
+```text
+Discover tools for all servers
+```
+
+This discovers and caches tools from every configured server.
+
+### Force Re-discovery
+
+To bypass cache and force fresh discovery:
+
+```text
+Clear cache for github server, then discover its tools
+```
+
+This uses `enkrypt_clear_cache` followed by `enkrypt_discover_all_tools`.
+
+## Response Structure
+
+### Single Server Discovery
+
+<CodeGroup>
+
+```json From Cache
+{
+  "status": "success",
+  "server_name": "github",
+  "message": "Tools retrieved from cache for github",
+  "source": "cache",
+  "tools": {
+    "tools": [
+      {
+        "name": "create_issue",
+        "description": "Create a new issue in a repository",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "repo": {"type": "string", "description": "Repository name"},
+            "title": {"type": "string"},
+            "body": {"type": "string"}
+          },
+          "required": ["repo", "title"]
+        }
+      }
+    ]
+  },
+  "blocked_tools": [],
+  "blocked_count": 0,
+  "blocked_reasons": []
+}
+```
+
+```json From Config
+{
+  "status": "success",
+  "server_name": "weather",
+  "message": "Tools already defined in config for weather",
+  "source": "config",
+  "tools": {
+    "get_weather": {
+      "name": "get_weather",
+      "description": "Get current weather for a location",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "location": {"type": "string"}
+        }
+      }
+    }
+  },
+  "blocked_tools": [],
+  "blocked_count": 0
+}
+```
+
+```json Fresh Discovery
+{
+  "status": "success",
+  "server_name": "echo_server",
+  "message": "Tools discovered for echo_server",
+  "source": "discovery",
+  "tools": [
+    {
+      "name": "echo",
+      "description": "Echo back the input",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": {"type": "string"}
+        }
+      }
+    }
+  ],
+  "blocked_tools": [],
+  "blocked_count": 0
+}
+```
+
+</CodeGroup>
+
+### All Servers Discovery
+
+```json
+{
+  "status": "success",
+  "message": "Tools discovery tried for all servers",
+  "discovery_failed_servers": [],
+  "discovery_success_servers": ["github", "weather", "echo_server"],
+  "available_servers": {
+    "github": {
+      "status": "success",
+      "tools": {...},
+      "source": "discovery"
+    },
+    "weather": {
+      "status": "success",
+      "tools": {...},
+      "source": "config"
+    }
+  }
+}
+```
+
+## Tool Sources
+
+Tools can come from three sources:
+
+<AccordionGroup>
+  <Accordion title="config - Pre-configured Tools">
+    Tools are explicitly defined in the gateway configuration file under the `tools` property for the server.
+    
+    **Advantages:**
+    - Instant availability
+    - No discovery overhead
+    - Can restrict which tools are accessible
+    
+    **Example:**
+    ```json
+    {
+      "server_name": "weather",
+      "tools": {
+        "get_weather": {...}
+      }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="cache - Cached Discovery">
+    Tools were previously discovered and cached. Default cache duration is 4 hours.
+    
+    **Advantages:**
+    - Fast retrieval
+    - No server connection needed
+    - Automatic refresh after expiration
+    
+    **Note:** Use `enkrypt_get_cache_status` to check cache expiration.
+  </Accordion>
+  
+  <Accordion title="discovery - Fresh Discovery">
+    Tools are dynamically discovered by connecting to the server and requesting its tool list.
+    
+    **Advantages:**
+    - Always up-to-date
+    - Discovers new tools automatically
+    - Validates tool availability
+    
+    **Note:** Results are automatically cached for future use.
+  </Accordion>
+</AccordionGroup>
+
+## Security Validation
+
+### Tool Guardrails
+
+If tool guardrails are enabled for a server, discovered tools are validated before being made available:
+
+```json Example: Blocked Tools
+{
+  "status": "success",
+  "server_name": "filesystem",
+  "tools": {...},
+  "blocked_tools": [
+    {
+      "name": "delete_system_file",
+      "reasons": [
+        "Tool allows destructive file operations",
+        "Potential security risk detected"
+      ]
+    }
+  ],
+  "blocked_count": 1,
+  "blocked_reasons": [
+    "Tool allows destructive file operations",
+    "Potential security risk detected"
+  ]
+}
+```
+
+<Warning>
+Blocked tools will not be available for execution via `enkrypt_secure_call_tools`.
+</Warning>
+
+### Server Validation
+
+Before tool discovery, the server itself is validated:
+
+```json Example: Blocked Server
+{
+  "status": "error",
+  "server_name": "malicious_server",
+  "message": "Server 'malicious_server' blocked by security guardrails: Suspicious command execution pattern detected",
+  "blocked": true,
+  "violations": [
+    "Suspicious command execution pattern detected"
+  ]
+}
+```
+
+## Implementation Details
+
+### Service Location
+
+Implemented in: `src/secure_mcp_gateway/services/discovery/discovery_service.py:52`
+
+### Three-Phase Parallel Discovery
+
+When discovering tools for all servers, the gateway uses an optimized three-phase approach:
+
+#### Phase 1: Server Validation
+
+All servers are validated in parallel against security guardrails:
+
+```python
+# Validates:
+- Server configuration
+- Command and arguments
+- Security policies
+- Server registration (if enabled)
+```
+
+#### Phase 2: Separation
+
+Servers are separated into two groups:
+- **Servers with config tools**: Have pre-defined tools in configuration
+- **Servers needing discovery**: Require dynamic tool discovery
+
+#### Phase 3: Parallel Execution
+
+Both groups are processed in parallel:
+- **Config tools**: Validated against guardrails
+- **Discovery tools**: Discovered and validated
+
+<Tip>
+This parallel approach can reduce discovery time from 30+ seconds to under 5 seconds for multiple servers.
+</Tip>
+
+### Caching Strategy
+
+Discovered tools are cached using a composite key:
+
+```python
+cache_key = f"{gateway_key}_{project_id}_{user_id}_{mcp_config_id}_{server_name}"
+```
+
+- **Cache duration**: 4 hours (configurable)
+- **Cache invalidation**: Automatic expiration or manual via `enkrypt_clear_cache`
+- **Cache types**: Local (in-memory) or External (Redis/KeyDB)
+
+## Tool Annotations
+
+```python
+annotations={
+    "title": "Discover Server Tools",
+    "readOnlyHint": True,      # Does not modify state
+    "destructiveHint": False,  # Not destructive
+    "idempotentHint": True,    # Can be called multiple times
+    "openWorldHint": False     # No external API calls
+}
+```
+
+## Common Use Cases
+
+<AccordionGroup>
+  <Accordion title="Initial Server Setup">
+    After adding a new server to your configuration:
+    
+    ```text
+    Discover tools for the new weather server
+    ```
+  </Accordion>
+  
+  <Accordion title="Verify Tool Updates">
+    When a server is updated with new tools:
+    
+    ```text
+    Clear cache and discover tools for github server
+    ```
+  </Accordion>
+  
+  <Accordion title="Troubleshoot Missing Tools">
+    When expected tools aren't showing up:
+    
+    ```text
+    Force discovery of tools for the database server
+    ```
+  </Accordion>
+  
+  <Accordion title="Check Security Blocks">
+    To see if any tools are being blocked:
+    
+    ```text
+    Discover tools for the filesystem server and show any blocked tools
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Error Handling
+
+<AccordionGroup>
+  <Accordion title="DISCOVERY_SERVER_UNAVAILABLE">
+    **Error**: Server not available
+    
+    **Cause**: Server name doesn't exist in configuration
+    
+    **Solution**: Use `enkrypt_list_all_servers` to see available servers
+  </Accordion>
+  
+  <Accordion title="DISCOVERY_FAILED">
+    **Error**: Tool discovery failed
+    
+    **Causes**:
+    - Server command/arguments incorrect
+    - Required dependencies not installed
+    - Server not responding
+    - Network connectivity issues
+    
+    **Solution**: Check server configuration and logs
+  </Accordion>
+  
+  <Accordion title="GUARDRAIL_VALIDATION_FAILED">
+    **Error**: Server blocked by security guardrails
+    
+    **Cause**: Server configuration violates security policies
+    
+    **Solution**: Review server configuration and guardrail policies
+  </Accordion>
+  
+  <Accordion title="Timeout Errors">
+    **Error**: Discovery operation timed out
+    
+    **Cause**: Server taking too long to respond
+    
+    **Solution**: 
+    - Check server performance
+    - Adjust timeout settings in gateway config
+    - Use `enkrypt_get_timeout_metrics` to diagnose
+  </Accordion>
+</AccordionGroup>
+
+## Performance Optimization
+
+<CardGroup cols={2}>
+  <Card title="Use Cache" icon="bolt">
+    Don't force re-discovery unless necessary. Cached tools are returned instantly.
+  </Card>
+  
+  <Card title="Discover in Background" icon="clock">
+    Use `enkrypt_list_all_servers` with `discover_tools=true` to discover all tools at once.
+  </Card>
+  
+  <Card title="Pre-configure Tools" icon="wrench">
+    Define tools in your config file to skip discovery entirely.
+  </Card>
+  
+  <Card title="External Cache" icon="server">
+    Use Redis/KeyDB for shared cache across multiple gateway instances.
+  </Card>
+</CardGroup>
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="List Servers" icon="server" href="/tools/list-servers">
+    See all configured servers before discovery
+  </Card>
+  
+  <Card title="Execute Tools" icon="play" href="/tools/execute-tools">
+    Use discovered tools securely
+  </Card>
+  
+  <Card title="Cache Status" icon="database" href="/tools/cache-management">
+    Check cache status and expiration
+  </Card>
+  
+  <Card title="Clear Cache" icon="trash" href="/tools/cache-management">
+    Force re-discovery by clearing cache
+  </Card>
+</CardGroup>

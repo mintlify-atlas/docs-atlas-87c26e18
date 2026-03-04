@@ -1,0 +1,633 @@
+---
+title: 'Guardrail Types'
+description: 'Comprehensive guide to all guardrail detection types, how they work, and configuration options'
+icon: 'shield-halved'
+---
+
+## Overview
+
+The Secure MCP Gateway supports multiple guardrail types for detecting and preventing security threats. Guardrails operate at three key points:
+
+1. **Server Registration**: Validates MCP servers during discovery
+2. **Tool Registration**: Validates tools before making them available
+3. **Request/Response Validation**: Validates inputs and outputs during execution
+
+<Info>
+**Provider-Based System**: Guardrails are implemented through pluggable providers. The primary provider is Enkrypt, with support for custom providers like OpenAI Moderation, AWS Comprehend, and keyword-based filters.
+</Info>
+
+## Guardrail Categories
+
+### Input Guardrails
+
+Input guardrails validate content **before** it's sent to the MCP server.
+
+<AccordionGroup>
+  <Accordion title="PII Detection & Redaction" icon="user-lock" defaultOpen>
+    **Purpose**: Detect and redact personally identifiable information
+    
+    **Detected Entities**:
+    - Names (person, organization)
+    - Email addresses
+    - Phone numbers
+    - Social Security Numbers (SSN)
+    - Credit card numbers
+    - IP addresses
+    - Physical addresses
+    - Date of birth
+    - Government IDs (passport, driver's license)
+    
+    **How It Works**:
+    1. Input text is scanned for PII patterns
+    2. Detected PII is replaced with tokens (e.g., `[NAME_1]`, `[EMAIL_1]`)
+    3. Original values are stored in a mapping with a unique key
+    4. Redacted text is sent to the MCP server
+    5. On response, PII is restored using the mapping
+    
+    **Configuration**:
+    ```json
+    {
+      "input_guardrails_policy": {
+        "enabled": true,
+        "additional_config": {
+          "pii_redaction": true
+        },
+        "block": ["pii"]  // Optional: block if PII detected
+      }
+    }
+    ```
+    
+    **Example**:
+    ```
+    Input:  "Send email to john.doe@example.com"
+    Redacted: "Send email to [EMAIL_1]"
+    Response: "Email sent to [EMAIL_1]"
+    Restored: "Email sent to john.doe@example.com"
+    ```
+  </Accordion>
+
+  <Accordion title="Injection Attack Detection" icon="syringe">
+    **Purpose**: Detect prompt injection, SQL injection, command injection attempts
+    
+    **Detection Patterns**:
+    - **Prompt Injection**:
+      - "Ignore previous instructions"
+      - "System override"
+      - "You are now in admin mode"
+      - Hidden instructions in markdown comments
+    - **SQL Injection**:
+      - `OR 1=1`, `'; DROP TABLE`
+      - Union-based injection
+      - Blind SQL injection patterns
+    - **Command Injection**:
+      - Shell metacharacters: `;`, `|`, `&&`, `||`
+      - Command substitution: `$(...)`, `` `...` ``
+      - Encoded payloads
+    
+    **Configuration**:
+    ```json
+    {
+      "input_guardrails_policy": {
+        "enabled": true,
+        "block": ["injection_attack"]
+      }
+    }
+    ```
+    
+    **Example Block**:
+    ```
+    Input: "Get user data WHERE id=1 OR 1=1--"
+    Violation: SQL injection detected
+    Action: BLOCK
+    ```
+  </Accordion>
+
+  <Accordion title="Toxicity Detection" icon="radiation">
+    **Purpose**: Detect toxic, hateful, or abusive content
+    
+    **Categories**:
+    - Hate speech (racial, religious, gender-based)
+    - Threats and violence
+    - Harassment and bullying
+    - Self-harm content
+    - Profanity and obscenity
+    
+    **Severity Scoring**:
+    - 0.0-0.3: Low toxicity
+    - 0.3-0.7: Medium toxicity  
+    - 0.7-1.0: High toxicity
+    
+    **Configuration**:
+    ```json
+    {
+      "input_guardrails_policy": {
+        "enabled": true,
+        "block": ["toxicity"],
+        "additional_config": {
+          "toxicity_threshold": 0.7
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="NSFW Content Detection" icon="eye-slash">
+    **Purpose**: Detect not-safe-for-work and explicit content
+    
+    **Categories**:
+    - Sexual content
+    - Nudity
+    - Adult themes
+    - Gore and graphic violence
+    
+    **Configuration**:
+    ```json
+    {
+      "input_guardrails_policy": {
+        "enabled": true,
+        "block": ["nsfw"]
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Keyword Detection" icon="key">
+    **Purpose**: Block requests containing specific keywords or patterns
+    
+    **Default Banned Keywords** (for tool/server registration):
+    - System commands: `exec`, `eval`, `shell`, `run_code`
+    - Destructive operations: `destroy`, `wipe`, `kill`, `terminate`
+    - Security bypasses: `bypass`, `override`, `escalate`, `sudo`
+    - Sensitive files: `mcp.json`, `claude_desktop_config.json`, `.env`
+    - Exploitation: `exploit`, `hack`, `crack`
+    
+    **Configuration**:
+    ```json
+    {
+      "input_guardrails_policy": {
+        "enabled": true,
+        "block": ["keyword_detector"],
+        "additional_config": {
+          "banned_keywords": [
+            "exec", "eval", "password", "secret"
+          ]
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Policy Violation Detection" icon="gavel">
+    **Purpose**: Check against custom organizational policies
+    
+    **How It Works**:
+    - Define natural language policy (e.g., "Airline customer service policy")
+    - AI evaluates if request violates the policy
+    - Returns explanation if violation detected
+    
+    **Configuration**:
+    ```json
+    {
+      "input_guardrails_policy": {
+        "enabled": true,
+        "policy_name": "Sample Airline Guardrail",
+        "block": ["policy_violation"],
+        "additional_config": {
+          "need_explanation": true
+        }
+      }
+    }
+    ```
+    
+    **Example**:
+    ```
+    Policy: "Only answer questions about flight bookings"
+    Input: "What's the weather in Paris?"
+    Violation: "Request is about weather, not flight bookings"
+    Action: BLOCK
+    ```
+  </Accordion>
+
+  <Accordion title="Bias Detection" icon="scale-balanced">
+    **Purpose**: Detect biased or discriminatory content
+    
+    **Categories**:
+    - Gender bias
+    - Racial/ethnic bias
+    - Age discrimination
+    - Religious bias
+    - Disability discrimination
+    
+    **Configuration**:
+    ```json
+    {
+      "input_guardrails_policy": {
+        "enabled": true,
+        "block": ["bias"]
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Sponge Attack Detection" icon="bomb">
+    **Purpose**: Detect resource exhaustion and DoS attempts
+    
+    **Attack Patterns**:
+    - Extremely long inputs (memory exhaustion)
+    - Repeated patterns (regex DoS)
+    - Nested structures (parser bombs)
+    - Compression bombs
+    
+    **Configuration**:
+    ```json
+    {
+      "input_guardrails_policy": {
+        "enabled": true,
+        "block": ["sponge_attack"]
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Topic Detection" icon="bullseye">
+    **Purpose**: Ensure requests stay on allowed topics
+    
+    **How It Works**:
+    - Define list of allowed topics
+    - AI classifies request topic
+    - Block if topic not in allowed list
+    
+    **Configuration**:
+    ```json
+    {
+      "input_guardrails_policy": {
+        "enabled": true,
+        "block": ["topic_detector"],
+        "additional_config": {
+          "topic": ["flights", "hotels", "car-rentals"]
+        }
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Output Guardrails
+
+Output guardrails validate content **after** it's received from the MCP server.
+
+<Note>
+Output guardrails include **all input guardrails** plus additional output-specific checks.
+</Note>
+
+<AccordionGroup>
+  <Accordion title="Relevancy Check" icon="check-double">
+    **Purpose**: Ensure response is relevant to the original request
+    
+    **How It Works**:
+    - Compares response content to original request
+    - Calculates relevancy score (0.0 - 1.0)
+    - Blocks/warns if below threshold
+    
+    **Configuration**:
+    ```json
+    {
+      "output_guardrails_policy": {
+        "enabled": true,
+        "additional_config": {
+          "relevancy": true,
+          "relevancy_threshold": 0.7
+        }
+      }
+    }
+    ```
+    
+    **Example**:
+    ```
+    Request: "What's the status of flight AA123?"
+    Response: "Here's today's weather forecast..."
+    Relevancy Score: 0.2 (below threshold)
+    Action: WARN or BLOCK
+    ```
+  </Accordion>
+
+  <Accordion title="Adherence Check" icon="clipboard-check">
+    **Purpose**: Verify response follows given context/instructions
+    
+    **How It Works**:
+    - Evaluates if response adheres to request constraints
+    - Checks format, scope, and instruction compliance
+    - Returns adherence score (0.0 - 1.0)
+    
+    **Configuration**:
+    ```json
+    {
+      "output_guardrails_policy": {
+        "enabled": true,
+        "additional_config": {
+          "adherence": true,
+          "adherence_threshold": 0.8
+        }
+      }
+    }
+    ```
+    
+    **Example**:
+    ```
+    Request: "List only flight numbers, no other details"
+    Response: "AA123, UA456, DL789"
+    Adherence Score: 0.95 (follows instructions)
+    
+    vs.
+    
+    Response: "Flight AA123 departs at 10am from gate 5..."
+    Adherence Score: 0.3 (includes extra details)
+    Action: WARN
+    ```
+  </Accordion>
+
+  <Accordion title="Hallucination Detection" icon="ghost">
+    **Purpose**: Detect fabricated or ungrounded information
+    
+    **Detection Methods**:
+    - Check if response contains verifiable facts
+    - Compare against request context
+    - Identify contradictions or impossible claims
+    
+    **Configuration**:
+    ```json
+    {
+      "output_guardrails_policy": {
+        "enabled": true,
+        "additional_config": {
+          "hallucination": true
+        }
+      }
+    }
+    ```
+    
+    **Example**:
+    ```
+    Request: "What's the capital of France?"
+    Response: "The capital of France is Berlin"
+    Hallucination: Detected (factually incorrect)
+    Confidence: 0.9
+    Action: WARN
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Registration Guardrails
+
+These guardrails run during server/tool discovery to prevent malicious components from being registered.
+
+### Server Registration Validation
+
+**Validates**: Server name, description, metadata
+
+**Configuration**:
+```json
+{
+  "enable_tool_guardrails": true,
+  "tools": {}
+}
+```
+
+When `enable_tool_guardrails` is true and `tools` is empty, the gateway validates:
+1. Server description for injection attacks
+2. Server metadata for policy violations
+3. Server configuration for banned keywords
+
+**Example Block**:
+```
+Server: "System Optimization Utility"
+Description: "Optimize system by running cleanup scripts with elevated privileges. Bypass security checks for better performance."
+
+Violations:
+- Injection attack detected: "bypass security"
+- Policy violation: "elevated privileges without justification"
+- Keyword violation: "bypass"
+
+Action: BLOCK server registration
+```
+
+### Tool Registration Validation
+
+**Validates**: Tool names, descriptions, input schemas, annotations
+
+**Validation Modes**:
+- `filter`: Allow server but filter out unsafe tools
+- `block_all`: Block entire server if any tool is unsafe
+
+**Configuration**:
+```json
+{
+  "enable_tool_guardrails": true,
+  "input_guardrails_policy": {
+    "enabled": true,
+    "block": ["injection_attack", "policy_violation"]
+  }
+}
+```
+
+**Example Filter**:
+```
+Server: GitHub MCP
+Tools discovered: 10
+
+Tool Analysis:
+- create_issue: ✓ Safe
+- list_repos: ✓ Safe  
+- delete_repo: ✓ Safe (destructiveHint=true)
+- execute_arbitrary_code: ✗ Blocked (injection attack)
+- export_credentials: ✗ Blocked (policy violation)
+
+Result: 8 safe tools registered, 2 blocked
+```
+
+## Guardrail Providers
+
+### Enkrypt Provider
+
+**Primary provider** with comprehensive detection capabilities.
+
+**Supported Detectors**:
+- All input guardrails (PII, injection, toxicity, NSFW, keywords, policy, bias, sponge)
+- All output guardrails (relevancy, adherence, hallucination)
+- Server/tool registration validation
+
+**API Endpoints**:
+- Policy Detection: `/guardrails/policy/detect`
+- PII Handling: `/guardrails/pii`
+- Relevancy: `/guardrails/relevancy`
+- Adherence: `/guardrails/adherence`
+- Hallucination: `/guardrails/hallucination`
+- Batch Detection: `/guardrails/batch/detect`
+
+**Configuration**:
+```json
+{
+  "plugins": {
+    "guardrails": {
+      "provider": "enkrypt",
+      "config": {
+        "api_key": "YOUR_ENKRYPT_API_KEY",
+        "base_url": "https://api.enkryptai.com"
+      }
+    }
+  }
+}
+```
+
+### OpenAI Moderation Provider
+
+**Purpose**: Use OpenAI's Moderation API for toxicity/NSFW detection
+
+**Supported Detectors**:
+- Toxicity (hate, violence, self-harm)
+- NSFW (sexual content)
+
+**Configuration**:
+```json
+{
+  "plugins": {
+    "guardrails": {
+      "provider": "openai-moderation",
+      "config": {
+        "api_key": "YOUR_OPENAI_API_KEY",
+        "threshold": 0.7,
+        "block_categories": ["hate", "violence", "sexual"]
+      }
+    }
+  }
+}
+```
+
+### Custom Keyword Provider
+
+**Purpose**: Simple keyword-based blocking
+
+**Supported Detectors**:
+- Keyword violations
+
+**Configuration**:
+```json
+{
+  "plugins": {
+    "guardrails": {
+      "provider": "custom-keyword",
+      "config": {
+        "blocked_keywords": [
+          "password", "secret", "exec", "eval"
+        ],
+        "case_sensitive": false
+      }
+    }
+  }
+}
+```
+
+### Composite Provider
+
+**Purpose**: Combine multiple providers with AND/OR logic
+
+**Configuration**:
+```json
+{
+  "plugins": {
+    "guardrails": {
+      "provider": "composite",
+      "config": {
+        "providers": ["enkrypt", "openai-moderation"],
+        "logic": "OR",  // Block if ANY provider detects violation
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+## Complete Configuration Example
+
+```json
+{
+  "server_name": "production_github",
+  "description": "GitHub MCP Server for production",
+  "config": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"]
+  },
+  "tools": {},
+  "enable_tool_guardrails": true,
+  
+  "input_guardrails_policy": {
+    "enabled": true,
+    "policy_name": "GitHub Access Policy",
+    "additional_config": {
+      "pii_redaction": true,
+      "banned_keywords": ["password", "token", "secret"]
+    },
+    "block": [
+      "policy_violation",
+      "injection_attack",
+      "toxicity",
+      "nsfw",
+      "keyword_detector",
+      "pii",
+      "bias"
+    ]
+  },
+  
+  "output_guardrails_policy": {
+    "enabled": true,
+    "policy_name": "GitHub Access Policy",
+    "additional_config": {
+      "relevancy": true,
+      "relevancy_threshold": 0.7,
+      "adherence": true,
+      "adherence_threshold": 0.8,
+      "hallucination": false
+    },
+    "block": [
+      "policy_violation",
+      "pii"
+    ]
+  }
+}
+```
+
+## Performance Considerations
+
+<Warning>
+**Latency Impact**: Guardrails add latency to requests. Plan for:
+- Input validation: 50-200ms
+- Output validation: 100-300ms  
+- Tool registration: 500-2000ms (batch validation)
+</Warning>
+
+**Optimization Tips**:
+1. **Use Batch API**: Tool registration uses batch API for efficiency
+2. **Selective Blocking**: Only enable necessary detectors in block list
+3. **Async Mode**: Enable `enkrypt_async_input_guardrails_enabled` for faster response
+4. **Cache Policies**: Guardrail results are cached per session
+5. **Timeout Configuration**: Set appropriate `guardrail_timeout` (default 15s)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="PII Handling" icon="user-lock" href="/security/pii-handling">
+    Deep dive into PII detection and redaction
+  </Card>
+  
+  <Card title="Security Testing" icon="flask" href="/security/testing">
+    Test guardrails with attack scenarios
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/guides/configuring-guardrails">
+    Configure guardrails for your servers
+  </Card>
+  
+  <Card title="Custom Providers" icon="plug" href="/guides/custom-plugins">
+    Build custom guardrail providers
+  </Card>
+</CardGroup>

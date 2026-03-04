@@ -1,0 +1,601 @@
+---
+title: Cache Management Tools
+description: Monitor and manage the gateway's tool discovery cache with enkrypt_get_cache_status and enkrypt_clear_cache.
+---
+
+## Overview
+
+The Secure MCP Gateway caches discovered tools to improve performance. Two tools help you monitor and manage this cache:
+
+- **`enkrypt_get_cache_status`** - View cache status and statistics
+- **`enkrypt_clear_cache`** - Clear cached data to force re-discovery
+
+<Info>
+Cache management tools are primarily used for debugging and troubleshooting. Normal operation doesn't require manual cache management.
+</Info>
+
+## enkrypt_get_cache_status
+
+### Tool Signature
+
+```python
+async def enkrypt_get_cache_status(
+    ctx: Context
+) -> dict
+```
+
+No parameters required - returns cache status for the authenticated user.
+
+### Return Value
+
+<ResponseField name="status" type="string" required>
+  Operation status: `"success"` or `"error"`
+</ResponseField>
+
+<ResponseField name="cache_status" type="object" required>
+  Detailed cache statistics
+  
+  <Expandable title="cache_status structure">
+    <ResponseField name="gateway_specific" type="object">
+      Cache status for the current gateway/user
+      
+      <Expandable title="gateway_specific properties">
+        <ResponseField name="config" type="object">
+          Gateway configuration cache status
+          
+          - `exists` (boolean): Whether config is cached
+          - `expires_at` (string): Expiration timestamp
+          - `expires_in_hours` (float): Hours until expiration
+          - `is_expired` (boolean): Whether cache has expired
+        </ResponseField>
+        
+        <ResponseField name="tools" type="object">
+          Tools cache status per server
+          
+          - `server_count` (integer): Number of servers
+          - `servers` (object): Per-server cache details
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="global" type="object">
+      Global cache statistics across all users
+      
+      - `total_gateways` (integer): Total cached gateway configs
+      - `total_tool_caches` (integer): Total cached tool sets
+      - `total_config_caches` (integer): Total config caches
+      - `tool_cache_expiration_hours` (integer): Tool cache TTL
+      - `config_cache_expiration_hours` (integer): Config cache TTL
+      - `cache_type` (string): `"local"` or `"external"`
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Usage Examples
+
+<CodeGroup>
+
+```text Claude Chat
+User: Show me the cache status
+
+Claude: Let me check the cache status for you.
+[Uses enkrypt_get_cache_status]
+
+Cache Status:
+- Gateway config: Cached, expires in 18.5 hours
+- Tools:
+  - github: 12 tools cached, expires in 2.3 hours
+  - weather: 3 tools from config (no cache needed)
+  - database: Not cached, needs discovery
+```
+
+```python Python SDK
+result = await session.call_tool(
+    "enkrypt_get_cache_status",
+    arguments={}
+)
+
+cache = result["cache_status"]
+print(f"Cache type: {cache['global']['cache_type']}")
+print(f"Total cached servers: {cache['global']['total_tool_caches']}")
+
+for server_name, info in cache['gateway_specific']['tools']['servers'].items():
+    if info['exists']:
+        print(f"{server_name}: {info['tool_count']} tools, expires in {info['expires_in_hours']:.1f}h")
+    elif info['needs_discovery']:
+        print(f"{server_name}: needs discovery")
+```
+
+</CodeGroup>
+
+### Response Structure
+
+```json
+{
+  "status": "success",
+  "cache_status": {
+    "gateway_specific": {
+      "config": {
+        "exists": true,
+        "expires_at": "2026-03-05 14:30:00 UTC",
+        "expires_in_hours": 18.5,
+        "is_expired": false
+      },
+      "tools": {
+        "server_count": 3,
+        "servers": {
+          "github": {
+            "tool_count": 12,
+            "error": null,
+            "are_tools_explicitly_defined": false,
+            "needs_discovery": false,
+            "exists": true,
+            "expires_at": "2026-03-04 22:15:00 UTC",
+            "expires_in_hours": 2.3,
+            "is_expired": false
+          },
+          "weather": {
+            "tool_count": 3,
+            "error": null,
+            "are_tools_explicitly_defined": true,
+            "needs_discovery": false,
+            "exists": false,
+            "expires_at": null,
+            "expires_in_hours": null,
+            "is_expired": true
+          },
+          "database": {
+            "tool_count": 0,
+            "error": null,
+            "are_tools_explicitly_defined": false,
+            "needs_discovery": true,
+            "exists": false,
+            "expires_at": null,
+            "expires_in_hours": null,
+            "is_expired": true
+          }
+        }
+      }
+    },
+    "global": {
+      "total_gateways": 5,
+      "total_tool_caches": 8,
+      "total_config_caches": 5,
+      "tool_cache_expiration_hours": 4,
+      "config_cache_expiration_hours": 24,
+      "cache_type": "local"
+    }
+  }
+}
+```
+
+### Understanding Cache States
+
+<AccordionGroup>
+  <Accordion title="Cached Tools (exists: true)">
+    Tools were discovered and are cached:
+    
+    ```json
+    {
+      "exists": true,
+      "tool_count": 12,
+      "expires_in_hours": 2.3
+    }
+    ```
+    
+    These tools are served from cache until expiration.
+  </Accordion>
+  
+  <Accordion title="Config Tools (are_tools_explicitly_defined: true)">
+    Tools are defined in the configuration file:
+    
+    ```json
+    {
+      "exists": false,
+      "are_tools_explicitly_defined": true,
+      "needs_discovery": false
+    }
+    ```
+    
+    These tools don't need caching - they're always available from config.
+  </Accordion>
+  
+  <Accordion title="Needs Discovery (needs_discovery: true)">
+    Server has no cached or configured tools:
+    
+    ```json
+    {
+      "exists": false,
+      "needs_discovery": true,
+      "tool_count": 0
+    }
+    ```
+    
+    Use `enkrypt_discover_all_tools` to discover and cache tools.
+  </Accordion>
+  
+  <Accordion title="Expired Cache (is_expired: true)">
+    Cached tools have expired:
+    
+    ```json
+    {
+      "exists": false,
+      "is_expired": true
+    }
+    ```
+    
+    Next tool discovery will refresh the cache.
+  </Accordion>
+</AccordionGroup>
+
+### Tool Annotations
+
+```python
+annotations={
+    "title": "Get Cache Status",
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False
+}
+```
+
+---
+
+## enkrypt_clear_cache
+
+### Tool Signature
+
+```python
+async def enkrypt_clear_cache(
+    ctx: Context,
+    id: str = None,
+    server_name: str = None,
+    cache_type: str = None
+) -> dict
+```
+
+### Parameters
+
+<ParamField path="ctx" type="Context" required>
+  MCP context (automatically provided)
+</ParamField>
+
+<ParamField path="id" type="str" default="None">
+  Gateway/User ID whose cache to clear.
+  
+  - `None`: Uses authenticated user's ID
+  - Specific ID: Clears cache for that ID (requires permissions)
+</ParamField>
+
+<ParamField path="server_name" type="str" default="None">
+  Name of server whose cache to clear.
+  
+  - `None`: Clears cache for all servers
+  - Specific name: Clears cache for that server only
+</ParamField>
+
+<ParamField path="cache_type" type="str" default="None">
+  Type of cache to clear.
+  
+  - `None` or `"all"`: Clears all caches (tools + config)
+  - `"gateway_config"`: Clears gateway configuration cache only
+  - `"server_config"`: Clears server tools cache only
+  
+  Aliases: `"gateway"`, `"gateway_cache"`, `"gateway_config_cache"`
+</ParamField>
+
+### Return Value
+
+<ResponseField name="status" type="string" required>
+  Operation status: `"success"` or `"info"`
+</ResponseField>
+
+<ResponseField name="message" type="string" required>
+  Description of what was cleared
+</ResponseField>
+
+### Usage Examples
+
+<CodeGroup>
+
+```text Clear All Caches
+User: Clear all cache
+
+Claude: I'll clear all cached data.
+[Uses enkrypt_clear_cache with no arguments]
+
+Cache cleared for all servers (3 servers) and gateway config (cleared)
+```
+
+```text Clear Specific Server
+User: Clear cache for the github server
+
+Claude: [Uses enkrypt_clear_cache with server_name="github"]
+
+Cache cleared for server: github
+```
+
+```text Clear Gateway Config Only
+User: Clear the gateway configuration cache
+
+Claude: [Uses enkrypt_clear_cache with cache_type="gateway_config"]
+
+Gateway config cache cleared
+```
+
+```python Python SDK
+# Clear all caches
+result = await session.call_tool(
+    "enkrypt_clear_cache",
+    arguments={}
+)
+
+# Clear specific server
+result = await session.call_tool(
+    "enkrypt_clear_cache",
+    arguments={"server_name": "github"}
+)
+
+# Clear gateway config only
+result = await session.call_tool(
+    "enkrypt_clear_cache",
+    arguments={"cache_type": "gateway_config"}
+)
+```
+
+</CodeGroup>
+
+### Response Examples
+
+<CodeGroup>
+
+```json All Cleared
+{
+  "status": "success",
+  "message": "Cache cleared for all servers (3 servers) and gateway config (cleared)"
+}
+```
+
+```json Server Cleared
+{
+  "status": "success",
+  "message": "Cache cleared for server: github"
+}
+```
+
+```json No Cache Found
+{
+  "status": "info",
+  "message": "No cache found for server: weather"
+}
+```
+
+</CodeGroup>
+
+### Tool Annotations
+
+```python
+annotations={
+    "title": "Clear Cache",
+    "readOnlyHint": False,
+    "destructiveHint": True,   # Removes cached data
+    "idempotentHint": False,
+    "openWorldHint": True      # May refresh remote config
+}
+```
+
+---
+
+## Cache Configuration
+
+Configure cache behavior in `enkrypt_mcp_config.json`:
+
+```json
+{
+  "common_mcp_gateway_config": {
+    "enkrypt_tool_cache_expiration": 4,
+    "enkrypt_gateway_cache_expiration": 24,
+    "enkrypt_mcp_use_external_cache": false,
+    "enkrypt_cache_host": "localhost",
+    "enkrypt_cache_port": 6379,
+    "enkrypt_cache_db": 0,
+    "enkrypt_cache_password": null
+  }
+}
+```
+
+### Configuration Options
+
+<ParamField path="enkrypt_tool_cache_expiration" type="integer" default="4">
+  Hours to cache discovered tools
+</ParamField>
+
+<ParamField path="enkrypt_gateway_cache_expiration" type="integer" default="24">
+  Hours to cache gateway configuration
+</ParamField>
+
+<ParamField path="enkrypt_mcp_use_external_cache" type="boolean" default="false">
+  Whether to use external cache (Redis/KeyDB)
+  
+  - `false`: Use local in-memory cache
+  - `true`: Use external Redis/KeyDB
+</ParamField>
+
+<ParamField path="enkrypt_cache_host" type="string" default="localhost">
+  Redis/KeyDB host (when external cache is enabled)
+</ParamField>
+
+<ParamField path="enkrypt_cache_port" type="integer" default="6379">
+  Redis/KeyDB port
+</ParamField>
+
+<ParamField path="enkrypt_cache_db" type="integer" default="0">
+  Redis database number
+</ParamField>
+
+<ParamField path="enkrypt_cache_password" type="string" default="null">
+  Redis password (if required)
+</ParamField>
+
+## Cache Types Comparison
+
+<CardGroup cols={2}>
+  <Card title="Local Cache" icon="hard-drive">
+    **Pros:**
+    - No external dependencies
+    - Fastest access
+    - Simple setup
+    
+    **Cons:**
+    - Not shared across instances
+    - Lost on restart
+    - Limited by memory
+  </Card>
+  
+  <Card title="External Cache (Redis/KeyDB)" icon="database">
+    **Pros:**
+    - Shared across instances
+    - Persists across restarts
+    - Scalable
+    
+    **Cons:**
+    - Requires external service
+    - Network latency
+    - Additional infrastructure
+  </Card>
+</CardGroup>
+
+## Common Use Cases
+
+<AccordionGroup>
+  <Accordion title="Troubleshoot Missing Tools">
+    If tools aren't showing up as expected:
+    
+    ```text
+    1. Check cache status
+    2. Clear cache for the server
+    3. Discover tools again
+    ```
+    
+    This forces a fresh discovery.
+  </Accordion>
+  
+  <Accordion title="Verify Cache Configuration">
+    After changing cache settings:
+    
+    ```text
+    Show cache status and confirm it's using external cache
+    ```
+  </Accordion>
+  
+  <Accordion title="Refresh After Server Update">
+    When a server is updated with new tools:
+    
+    ```text
+    Clear cache for updated_server and discover its tools
+    ```
+  </Accordion>
+  
+  <Accordion title="Monitor Cache Health">
+    Regular cache health checks:
+    
+    ```text
+    Show cache status and check for expired entries
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Implementation Details
+
+### Service Locations
+
+- **Cache Status**: `src/secure_mcp_gateway/services/cache/cache_status_service.py:55`
+- **Cache Management**: `src/secure_mcp_gateway/services/cache/cache_management_service.py:71`
+- **Core Cache**: `src/secure_mcp_gateway/services/cache/cache_service.py`
+
+### Cache Key Format
+
+Cache keys are hashed for security:
+
+```python
+# Tool cache key
+key = f"tools_{gateway_id}_{server_name}"
+hashed_key = hashlib.md5(key.encode()).hexdigest()
+
+# Gateway config key
+key = f"gateway_config_{gateway_id}"
+hashed_key = hashlib.md5(key.encode()).hexdigest()
+```
+
+### Cache Registry
+
+The gateway maintains a registry of all cache entries for efficient clearing:
+
+```python
+cache_registry = {
+    "gateway_123": {
+        "tool_caches": ["github", "weather"],
+        "config_cache": True
+    }
+}
+```
+
+## Performance Impact
+
+<Tip>
+Cached tools are retrieved in less than 10ms vs 1-5 seconds for fresh discovery.
+</Tip>
+
+### Cache Hit Rates
+
+Monitor cache effectiveness:
+
+```python
+# Via telemetry
+telemetry_manager.cache_hit_counter.add(1)
+telemetry_manager.cache_miss_counter.add(1)
+
+# Via timeout metrics
+await session.call_tool("enkrypt_get_timeout_metrics")
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Regular Monitoring" icon="chart-line">
+    Check cache status periodically to ensure healthy operation.
+  </Card>
+  
+  <Card title="Selective Clearing" icon="filter">
+    Clear specific servers rather than all caches when possible.
+  </Card>
+  
+  <Card title="External Cache for Production" icon="server">
+    Use Redis/KeyDB for production deployments with multiple instances.
+  </Card>
+  
+  <Card title="Appropriate TTLs" icon="clock">
+    Set cache expiration based on how frequently tools change.
+  </Card>
+</CardGroup>
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="List Servers" icon="server" href="/tools/list-servers">
+    See which servers have cached tools
+  </Card>
+  
+  <Card title="Discover Tools" icon="magnifying-glass" href="/tools/discover-tools">
+    Force fresh tool discovery
+  </Card>
+  
+  <Card title="Timeout Metrics" icon="chart-line" href="/observability/metrics">
+    Monitor cache performance metrics
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/concepts/configuration">
+    Configure cache settings
+  </Card>
+</CardGroup>

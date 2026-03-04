@@ -1,0 +1,373 @@
+---
+title: List Servers Tool
+description: Use enkrypt_list_all_servers to discover all configured MCP servers and their available tools.
+---
+
+## Overview
+
+The `enkrypt_list_all_servers` tool retrieves comprehensive information about all MCP servers configured in your gateway, including their tools, configuration status, and discovery requirements.
+
+<Info>
+This is typically the first tool you'll use when working with the gateway.
+</Info>
+
+## Tool Signature
+
+```python
+async def enkrypt_list_all_servers(
+    ctx: Context,
+    discover_tools: bool = True
+) -> dict
+```
+
+### Parameters
+
+<ParamField path="ctx" type="Context" required>
+  MCP context (automatically provided by the client)
+</ParamField>
+
+<ParamField path="discover_tools" type="bool" default="true">
+  Whether to automatically discover tools for servers that need it.
+  
+  - `true`: Discovers and caches tools for all servers
+  - `false`: Returns server list without tool discovery
+</ParamField>
+
+### Return Value
+
+Returns a dictionary containing:
+
+<ResponseField name="status" type="string" required>
+  Operation status: `"success"` or `"error"`
+</ResponseField>
+
+<ResponseField name="available_servers" type="object" required>
+  Dictionary of server configurations keyed by server name
+</ResponseField>
+
+<ResponseField name="servers_needing_discovery" type="array">
+  List of server names that require tool discovery
+</ResponseField>
+
+<ResponseField name="discovery_failed_servers" type="array">
+  List of server names where discovery failed (only when `discover_tools=true`)
+</ResponseField>
+
+<ResponseField name="discovery_success_servers" type="array">
+  List of server names where discovery succeeded (only when `discover_tools=true`)
+</ResponseField>
+
+## Usage Examples
+
+### Basic Usage
+
+<CodeGroup>
+
+```text Claude Chat
+User: List all available servers
+
+Claude: I'll list all available MCP servers for you.
+[Uses enkrypt_list_all_servers tool]
+
+I found 3 servers configured:
+1. github - GitHub integration
+2. weather - Weather data provider  
+3. echo_server - Test echo server
+```
+
+```python Python SDK
+from mcp import ClientSession
+
+async with ClientSession(...) as session:
+    result = await session.call_tool(
+        "enkrypt_list_all_servers",
+        arguments={"discover_tools": True}
+    )
+    
+    servers = result["available_servers"]
+    print(f"Found {len(servers)} servers")
+```
+
+</CodeGroup>
+
+### Without Tool Discovery
+
+If you want to list servers quickly without discovering their tools:
+
+```text
+List all servers without discovering tools
+```
+
+This will call `enkrypt_list_all_servers` with `discover_tools=false`, returning server information faster.
+
+## Response Structure
+
+### Success Response
+
+<CodeGroup>
+
+```json With Discovery
+{
+  "status": "success",
+  "message": "Tools discovery tried for all servers",
+  "discovery_failed_servers": [],
+  "discovery_success_servers": ["github", "weather", "echo_server"],
+  "available_servers": {
+    "github": {
+      "server_name": "github",
+      "description": "GitHub MCP Server",
+      "config": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"]
+      },
+      "tools": {
+        "create_issue": {
+          "name": "create_issue",
+          "description": "Create a new issue in a repository",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "repo": {"type": "string"},
+              "title": {"type": "string"},
+              "body": {"type": "string"}
+            }
+          }
+        }
+      },
+      "input_guardrails_policy": {
+        "enabled": true,
+        "policy_name": "Sample Airline Guardrail"
+      },
+      "output_guardrails_policy": {
+        "enabled": true,
+        "policy_name": "Sample Airline Guardrail"
+      }
+    }
+  }
+}
+```
+
+```json Without Discovery
+{
+  "status": "success",
+  "available_servers": {
+    "github": {
+      "server_name": "github",
+      "description": "GitHub MCP Server",
+      "config": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"]
+      },
+      "tools": {}
+    }
+  },
+  "servers_needing_discovery": ["github", "weather", "echo_server"]
+}
+```
+
+</CodeGroup>
+
+### Error Response
+
+```json
+{
+  "status": "error",
+  "error": "No MCP config found. Please check your credentials.",
+  "error_code": "CONFIG_MISSING_REQUIRED",
+  "correlation_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}
+```
+
+## Server Object Structure
+
+Each server in `available_servers` contains:
+
+<ResponseField name="server_name" type="string">
+  Unique identifier for the server
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Human-readable description of the server
+</ResponseField>
+
+<ResponseField name="config" type="object">
+  Server execution configuration
+  
+  <Expandable title="config properties">
+    <ResponseField name="command" type="string">
+      Command to execute (e.g., `"python"`, `"npx"`, `"docker"`)
+    </ResponseField>
+    
+    <ResponseField name="args" type="array">
+      Command-line arguments
+    </ResponseField>
+    
+    <ResponseField name="env" type="object">
+      Environment variables (sensitive values are masked)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="tools" type="object">
+  Dictionary of available tools (empty if not discovered yet)
+</ResponseField>
+
+<ResponseField name="input_guardrails_policy" type="object">
+  Input guardrail configuration for this server
+</ResponseField>
+
+<ResponseField name="output_guardrails_policy" type="object">
+  Output guardrail configuration for this server
+</ResponseField>
+
+## Implementation Details
+
+### Service Location
+
+Implemented in: `src/secure_mcp_gateway/services/server/server_listing_service.py:38`
+
+### Authentication
+
+The tool automatically:
+1. Extracts gateway credentials from the request context
+2. Validates credentials against the local or remote configuration
+3. Retrieves the MCP configuration for the authenticated user/project
+
+### Caching
+
+Server information is cached to improve performance:
+
+- **Cache Key**: Based on gateway key, project ID, user ID, and config ID
+- **Cache Duration**: 24 hours (gateway config) + 4 hours (tools)
+- **Cache Type**: Local (in-memory) or External (Redis/KeyDB)
+
+### Parallel Processing
+
+When `discover_tools=true`, the gateway:
+
+1. **Phase 1**: Validates all servers in parallel
+2. **Phase 2**: Separates servers with pre-configured tools from those needing discovery
+3. **Phase 3**: Runs tool validation and discovery in parallel
+
+<Tip>
+This parallel approach significantly reduces response time for multiple servers.
+</Tip>
+
+## Tool Annotations
+
+```python
+annotations={
+    "title": "List Available Servers",
+    "readOnlyHint": True,      # Does not modify state
+    "destructiveHint": False,  # Not destructive
+    "idempotentHint": True,    # Can be called multiple times
+    "openWorldHint": False     # No external API calls
+}
+```
+
+## Common Use Cases
+
+<AccordionGroup>
+  <Accordion title="Verify Server Configuration">
+    ```text
+    List all servers and show their configuration
+    ```
+    
+    Use this to verify that servers are properly configured and accessible.
+  </Accordion>
+  
+  <Accordion title="Check Available Tools">
+    ```text
+    What tools are available across all servers?
+    ```
+    
+    Gets a comprehensive view of all capabilities.
+  </Accordion>
+  
+  <Accordion title="Troubleshoot Discovery Issues">
+    ```text
+    List servers without discovering tools
+    ```
+    
+    Quickly check server connectivity without waiting for tool discovery.
+  </Accordion>
+  
+  <Accordion title="Initial Setup Verification">
+    After setting up the gateway, use this tool to confirm all servers are accessible:
+    
+    ```text
+    Show me all configured servers and whether they're working
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Error Handling
+
+Common errors and solutions:
+
+<AccordionGroup>
+  <Accordion title="CONFIG_MISSING_REQUIRED">
+    **Error**: No MCP config found
+    
+    **Solution**: Verify that:
+    - Gateway key is correct in your MCP client config
+    - `~/.enkrypt/enkrypt_mcp_config.json` exists
+    - Project ID and User ID match the configuration
+  </Accordion>
+  
+  <Accordion title="AUTH_INVALID_CREDENTIALS">
+    **Error**: Authentication failed
+    
+    **Solution**: Check your gateway credentials in the MCP client configuration
+  </Accordion>
+  
+  <Accordion title="DISCOVERY_FAILED">
+    **Error**: Tool discovery failed for some servers
+    
+    **Solution**: 
+    - Check server command and arguments
+    - Verify required dependencies are installed
+    - Review server logs for specific errors
+    - Try `discover_tools=false` to see which servers are accessible
+  </Accordion>
+</AccordionGroup>
+
+## Performance Tips
+
+<CardGroup cols={2}>
+  <Card title="Use Caching" icon="bolt">
+    Tools are cached for 4 hours by default. Subsequent calls return cached results instantly.
+  </Card>
+  
+  <Card title="Skip Discovery" icon="forward">
+    Set `discover_tools=false` for faster responses when you only need server names.
+  </Card>
+  
+  <Card title="Parallel Execution" icon="arrows-split-up-and-left">
+    The gateway automatically discovers tools from multiple servers in parallel.
+  </Card>
+  
+  <Card title="Monitor Metrics" icon="chart-line">
+    Use `enkrypt_get_timeout_metrics` to identify slow servers.
+  </Card>
+</CardGroup>
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="Get Server Info" icon="circle-info" href="/tools/list-servers">
+    Get detailed information about a specific server
+  </Card>
+  
+  <Card title="Discover Tools" icon="magnifying-glass" href="/tools/discover-tools">
+    Force re-discovery of tools for a server
+  </Card>
+  
+  <Card title="Cache Status" icon="database" href="/tools/cache-management">
+    View cache status for discovered tools
+  </Card>
+  
+  <Card title="Execute Tools" icon="play" href="/tools/execute-tools">
+    Run tools from discovered servers
+  </Card>
+</CardGroup>

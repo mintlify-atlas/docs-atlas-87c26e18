@@ -1,0 +1,539 @@
+---
+title: 'Caching'
+description: 'Local and external caching with Redis/KeyDB support, cache expiration, and performance optimization'
+---
+
+## Overview
+
+Secure MCP Gateway implements a sophisticated caching system to improve performance and reduce latency. The cache system supports both local in-memory caching and external distributed caching using Redis or KeyDB.
+
+## Cache Types
+
+The gateway caches three main types of data:
+
+<CardGroup cols={3}>
+  <Card title="Tool Cache" icon="wrench">
+    Caches discovered tools from MCP servers (4 hours default)
+  </Card>
+  <Card title="Gateway Config" icon="gear">
+    Caches user gateway configurations (24 hours default)
+  </Card>
+  <Card title="OAuth Tokens" icon="key">
+    Caches OAuth access tokens until expiry
+  </Card>
+</CardGroup>
+
+## Cache Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Cache Service                          │
+│                                                             │
+│  ┌──────────────────┐        ┌──────────────────┐          │
+│  │  Local Cache     │        │  External Cache  │          │
+│  │  (In-Memory)     │   OR   │  (Redis/KeyDB)   │          │
+│  │                  │        │                  │          │
+│  │  - Threading     │        │  - Distributed   │          │
+│  │  - Fast access   │        │  - Multi-instance│          │
+│  │  - Single node   │        │  - Persistence   │          │
+│  └──────────────────┘        └──────────────────┘          │
+│                                                             │
+│  - MD5 key hashing for security                            │
+│  - Configurable expiration (hours)                          │
+│  - Cache registry tracking                                  │
+│  - Metrics: hits, misses, size                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Configuration
+
+### Local Cache (Default)
+
+```json enkrypt_mcp_config.json
+{
+  "common_mcp_gateway_config": {
+    "enkrypt_mcp_use_external_cache": false,
+    "enkrypt_tool_cache_expiration": 4,
+    "enkrypt_gateway_cache_expiration": 24
+  }
+}
+```
+
+### External Cache (Redis/KeyDB)
+
+```json enkrypt_mcp_config.json
+{
+  "common_mcp_gateway_config": {
+    "enkrypt_mcp_use_external_cache": true,
+    "enkrypt_cache_host": "localhost",
+    "enkrypt_cache_port": 6379,
+    "enkrypt_cache_db": 0,
+    "enkrypt_cache_password": null,
+    "enkrypt_tool_cache_expiration": 4,
+    "enkrypt_gateway_cache_expiration": 24
+  }
+}
+```
+
+## CacheService Implementation
+
+### Initialization
+
+```python src/secure_mcp_gateway/services/cache/cache_service.py
+class CacheService:
+    def __init__(self):
+        # Get configuration
+        self.common_config = get_common_config()
+        
+        # Cache configuration
+        self.tool_cache_expiration = int(
+            self.common_config.get("enkrypt_tool_cache_expiration", 4)
+        )
+        self.gateway_cache_expiration = int(
+            self.common_config.get("enkrypt_gateway_cache_expiration", 24)
+        )
+        self.use_external_cache = self.common_config.get(
+            "enkrypt_mcp_use_external_cache", False
+        )
+        
+        # Initialize cache client
+        self.cache_client = None
+        self._initialize_cache()
+        
+        logger.info("Cache service initialized:")
+        logger.info(f"  - Tool cache expiration: {self.tool_cache_expiration} hours")
+        logger.info(f"  - Gateway cache expiration: {self.gateway_cache_expiration} hours")
+        logger.info(f"  - External cache enabled: {self.use_external_cache}")
+    
+    def _initialize_cache(self):
+        if self.use_external_cache:
+            try:
+                from secure_mcp_gateway.client import initialize_cache
+                self.cache_client = initialize_cache()
+                logger.info("[external_cache] Successfully connected")
+            except Exception as e:
+                logger.error(f"[external_cache] Failed to connect: {e}")
+                self.cache_client = None
+        else:
+            logger.info("External Cache not enabled. Using local cache only.")
+            self.cache_client = None
+```
+
+## Cache Operations
+
+### Tool Caching
+
+```python src/secure_mcp_gateway/client.py
+def cache_tools(
+    cache_client,
+    id: str,
+    server_name: str,
+    tools: list,
+    expiration_hours: int = 4
+):
+    """
+    Cache discovered tools for a server.
+    
+    Args:
+        cache_client: Redis client or None for local cache
+        id: MCP config ID
+        server_name: Name of the MCP server
+        tools: List of tool definitions
+        expiration_hours: Cache expiration in hours
+    """
+    import hashlib
+    import json
+    import time
+    import threading
+    
+    # Create cache key
+    cache_key_raw = f"tools:{id}:{server_name}"
+    cache_key = hashlib.md5(cache_key_raw.encode()).hexdigest()
+    
+    # Create cache entry
+    cache_entry = {
+        "tools": tools,
+        "cached_at": time.time(),
+        "expires_at": time.time() + (expiration_hours * 3600)
+    }
+    
+    if cache_client:
+        # External cache (Redis)
+        try:
+            cache_client.setex(
+                cache_key,
+                expiration_hours * 3600,
+                json.dumps(cache_entry)
+            )
+            logger.debug(f"[cache] Cached tools for {server_name} in Redis")
+        except Exception as e:
+            logger.error(f"[cache] Failed to cache in Redis: {e}")
+    else:
+        # Local cache (in-memory)
+        with local_cache_lock:
+            local_tools_cache[cache_key] = cache_entry
+            logger.debug(f"[cache] Cached tools for {server_name} locally")
+            
+        # Track in registry
+        cache_registry["tool_caches"].add(cache_key)
+```
+
+### Tool Retrieval
+
+```python src/secure_mcp_gateway/client.py
+def get_cached_tools(
+    cache_client,
+    id: str,
+    server_name: str
+) -> Optional[list]:
+    """
+    Retrieve cached tools for a server.
+    
+    Returns:
+        List of tools if found and not expired, None otherwise
+    """
+    import hashlib
+    import json
+    import time
+    
+    cache_key_raw = f"tools:{id}:{server_name}"
+    cache_key = hashlib.md5(cache_key_raw.encode()).hexdigest()
+    
+    if cache_client:
+        # External cache (Redis)
+        try:
+            cached_data = cache_client.get(cache_key)
+            if cached_data:
+                cache_entry = json.loads(cached_data)
+                if cache_entry["expires_at"] > time.time():
+                    logger.debug(f"[cache] Hit for {server_name} in Redis")
+                    return cache_entry["tools"]
+                else:
+                    logger.debug(f"[cache] Expired entry for {server_name}")
+                    cache_client.delete(cache_key)
+        except Exception as e:
+            logger.error(f"[cache] Failed to retrieve from Redis: {e}")
+    else:
+        # Local cache (in-memory)
+        with local_cache_lock:
+            cache_entry = local_tools_cache.get(cache_key)
+            if cache_entry:
+                if cache_entry["expires_at"] > time.time():
+                    logger.debug(f"[cache] Hit for {server_name} locally")
+                    return cache_entry["tools"]
+                else:
+                    logger.debug(f"[cache] Expired entry for {server_name}")
+                    del local_tools_cache[cache_key]
+                    cache_registry["tool_caches"].discard(cache_key)
+    
+    logger.debug(f"[cache] Miss for {server_name}")
+    return None
+```
+
+### Gateway Config Caching
+
+```python src/secure_mcp_gateway/client.py
+def cache_gateway_config(
+    cache_client,
+    id: str,
+    config: dict,
+    expiration_hours: int = 24
+):
+    """
+    Cache gateway configuration.
+    """
+    cache_key_raw = f"gateway_config:{id}"
+    cache_key = hashlib.md5(cache_key_raw.encode()).hexdigest()
+    
+    cache_entry = {
+        "config": config,
+        "cached_at": time.time(),
+        "expires_at": time.time() + (expiration_hours * 3600)
+    }
+    
+    if cache_client:
+        cache_client.setex(
+            cache_key,
+            expiration_hours * 3600,
+            json.dumps(cache_entry)
+        )
+    else:
+        with local_cache_lock:
+            local_gateway_cache[cache_key] = cache_entry
+            cache_registry["config_caches"].add(cache_key)
+
+def get_cached_gateway_config(
+    cache_client,
+    id: str
+) -> Optional[dict]:
+    """
+    Retrieve cached gateway configuration.
+    """
+    cache_key_raw = f"gateway_config:{id}"
+    cache_key = hashlib.md5(cache_key_raw.encode()).hexdigest()
+    
+    if cache_client:
+        cached_data = cache_client.get(cache_key)
+        if cached_data:
+            cache_entry = json.loads(cached_data)
+            if cache_entry["expires_at"] > time.time():
+                return cache_entry["config"]
+    else:
+        with local_cache_lock:
+            cache_entry = local_gateway_cache.get(cache_key)
+            if cache_entry and cache_entry["expires_at"] > time.time():
+                return cache_entry["config"]
+    
+    return None
+```
+
+## Cache Management
+
+### Cache Status Service
+
+```python src/secure_mcp_gateway/services/cache/cache_status_service.py
+class CacheStatusService:
+    async def get_cache_status(self, ctx, logger):
+        """
+        Get cache statistics.
+        
+        Returns:
+            {
+                "total_gateways": int,
+                "total_tool_caches": int,
+                "total_config_caches": int,
+                "cache_type": "local" | "external",
+                "redis_info": {...}  # if external
+            }
+        """
+        cache_client = self.cache_service.cache_client
+        
+        status = {
+            "cache_type": "external" if cache_client else "local",
+            "total_tool_caches": 0,
+            "total_config_caches": 0,
+            "total_gateways": 0
+        }
+        
+        if cache_client:
+            # External cache (Redis)
+            try:
+                # Count keys by pattern
+                tool_keys = cache_client.keys("*tools:*")
+                config_keys = cache_client.keys("*gateway_config:*")
+                gateway_keys = cache_client.keys("*gateway_key:*")
+                
+                status["total_tool_caches"] = len(tool_keys)
+                status["total_config_caches"] = len(config_keys)
+                status["total_gateways"] = len(gateway_keys)
+                
+                # Redis server info
+                redis_info = cache_client.info()
+                status["redis_info"] = {
+                    "redis_version": redis_info.get("redis_version"),
+                    "used_memory_human": redis_info.get("used_memory_human"),
+                    "total_keys": redis_info.get("db0", {}).get("keys", 0)
+                }
+            except Exception as e:
+                logger.error(f"Failed to get Redis status: {e}")
+        else:
+            # Local cache
+            status["total_tool_caches"] = len(cache_registry["tool_caches"])
+            status["total_config_caches"] = len(cache_registry["config_caches"])
+            status["total_gateways"] = len(cache_registry["gateway_keys"])
+        
+        return status
+```
+
+### Cache Clear Service
+
+```python src/secure_mcp_gateway/services/cache/cache_management_service.py
+class CacheManagementService:
+    async def clear_cache(
+        self,
+        ctx,
+        id: str,
+        server_name: Optional[str] = None,
+        cache_type: str = "all",
+        logger = None
+    ):
+        """
+        Clear cache entries.
+        
+        Args:
+            cache_type: "all", "gateway_config", "server_config", "tools"
+            server_name: Specific server name (for tools cache)
+        """
+        cache_client = self.cache_service.cache_client
+        cleared = 0
+        
+        if cache_type in ["all", "gateway_config"]:
+            # Clear gateway config
+            cache_key_raw = f"gateway_config:{id}"
+            cache_key = hashlib.md5(cache_key_raw.encode()).hexdigest()
+            
+            if cache_client:
+                cache_client.delete(cache_key)
+            else:
+                with local_cache_lock:
+                    if cache_key in local_gateway_cache:
+                        del local_gateway_cache[cache_key]
+                        cleared += 1
+        
+        if cache_type in ["all", "tools"] and server_name:
+            # Clear specific server tools
+            cache_key_raw = f"tools:{id}:{server_name}"
+            cache_key = hashlib.md5(cache_key_raw.encode()).hexdigest()
+            
+            if cache_client:
+                cache_client.delete(cache_key)
+            else:
+                with local_cache_lock:
+                    if cache_key in local_tools_cache:
+                        del local_tools_cache[cache_key]
+                        cleared += 1
+        
+        return {"status": "success", "cleared": cleared}
+```
+
+## Cache CLI Commands
+
+<CodeGroup>
+```bash View Status
+# Get cache statistics
+secure-mcp-gateway cache status
+
+# Example output:
+Cache Status:
+  Type: local
+  Tool Caches: 5
+  Config Caches: 2
+  Gateway Keys: 3
+```
+
+```bash Clear Cache
+# Clear all caches
+secure-mcp-gateway cache clear
+
+# Clear specific server tools
+secure-mcp-gateway cache clear --server-name github_server
+
+# Clear only gateway configs
+secure-mcp-gateway cache clear --cache-type gateway_config
+```
+</CodeGroup>
+
+## Cache MCP Tools
+
+The gateway exposes cache management via MCP tools:
+
+```python
+# Get cache status
+status = client.call_tool("Enkrypt Secure MCP Gateway", "enkrypt_get_cache_status", {})
+
+# Clear cache
+result = client.call_tool(
+    "Enkrypt Secure MCP Gateway",
+    "enkrypt_clear_cache",
+    {
+        "cache_type": "tools",
+        "server_name": "github_server"
+    }
+)
+```
+
+## Performance Optimization
+
+### Cache Hit Ratio
+
+Monitor cache effectiveness:
+
+```python
+metrics = telemetry_manager.get_metrics()
+
+cache_hit_ratio = (
+    metrics["cache_hits"] / (metrics["cache_hits"] + metrics["cache_misses"])
+)
+
+logger.info(f"Cache hit ratio: {cache_hit_ratio:.2%}")
+```
+
+### Preloading Cache
+
+For frequently used servers, preload the cache:
+
+```python
+# Discover and cache all tools at startup
+await discovery_service.discover_tools(ctx, server_name=None)
+```
+
+### External Cache Benefits
+
+<CardGroup cols={2}>
+  <Card title="Multi-Instance" icon="server">
+    Shared cache across multiple gateway instances
+  </Card>
+  <Card title="Persistence" icon="database">
+    Survives gateway restarts with Redis persistence
+  </Card>
+  <Card title="Scalability" icon="chart-line">
+    Better performance under high load
+  </Card>
+  <Card title="Distributed" icon="network-wired">
+    Cache accessible from multiple data centers
+  </Card>
+</CardGroup>
+
+## Security Considerations
+
+<Warning>
+**Key Hashing**: All cache keys are MD5 hashed to prevent exposure of sensitive identifiers in cache storage.
+</Warning>
+
+<Info>
+**Token Security**: OAuth tokens in cache are in-memory only by default. For external cache, consider encryption.
+</Info>
+
+<Note>
+**Cache Expiration**: Set appropriate expiration times based on your server update frequency and security requirements.
+</Note>
+
+## Docker Compose with KeyDB
+
+```yaml docker-compose.yml
+services:
+  gateway:
+    image: enkryptai/secure-mcp-gateway
+    environment:
+      - ENKRYPT_MCP_USE_EXTERNAL_CACHE=true
+      - ENKRYPT_CACHE_HOST=keydb
+      - ENKRYPT_CACHE_PORT=6379
+    depends_on:
+      - keydb
+  
+  keydb:
+    image: eqalpha/keydb:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - keydb-data:/data
+    command: keydb-server --appendonly yes
+
+volumes:
+  keydb-data:
+```
+
+## Monitoring Cache Performance
+
+View cache metrics in Grafana:
+
+- Cache hit/miss ratio over time
+- Cache size and memory usage
+- Average cache lookup latency
+- Cache eviction rate
+
+## Related Resources
+
+- [Redis Documentation](https://redis.io/docs/)
+- [KeyDB Documentation](https://docs.keydb.dev/)
+- [Cache Invalidation Strategies](https://martinfowler.com/bliki/TwoHardThings.html)

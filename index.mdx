@@ -1,97 +1,166 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Secure MCP Gateway"
+description: "Security middleware gateway for Model Context Protocol servers with authentication, guardrails, and observability"
+mode: "custom"
 ---
 
-## Setting up
+<div className="relative overflow-hidden py-20 dark:bg-gradient-to-b dark:from-[#0f1117] dark:via-[#1a1d27] dark:to-[#0f1117] bg-gradient-to-b from-white via-gray-50 to-white">
+  <div className="max-w-6xl mx-auto px-6">
+    <div className="text-center">
+      <h1 className="text-5xl md:text-6xl font-bold mb-6 dark:text-white text-gray-900">
+        Secure MCP Gateway
+      </h1>
+      <p className="text-xl md:text-2xl mb-8 max-w-3xl mx-auto dark:text-gray-300 text-gray-600">
+        Enterprise-grade security middleware for Model Context Protocol servers with authentication, guardrails, and observability
+      </p>
+      <div className="flex flex-wrap gap-4 justify-center">
+        <a
+          href="/quickstart"
+          className="inline-flex items-center px-8 py-3.5 rounded-lg font-semibold text-white transition-all"
+          style={{ background: 'linear-gradient(90deg, #fb5e47 0%, #fb67c4 100%)' }}
+        >
+          Get Started
+          <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+          </svg>
+        </a>
+        <a
+          href="/api/overview"
+          className="inline-flex items-center px-8 py-3.5 rounded-lg font-semibold dark:text-white text-gray-900 dark:bg-white/10 bg-gray-100 dark:border-white/20 border-gray-200 border hover:dark:bg-white/20 hover:bg-gray-200 transition-all"
+        >
+          API Reference
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold mb-4 dark:text-white text-gray-900">Quick start</h2>
+  <p className="text-lg mb-8 dark:text-gray-400 text-gray-600">Get up and running with Secure MCP Gateway in minutes</p>
+  
+  <Steps>
+    <Step title="Install the gateway">
+      Install via pip or run with Docker:
+      
+      ```bash pip
+      pip install secure-mcp-gateway
+      ```
+      
+      ```bash Docker
+      docker pull enkryptai/secure-mcp-gateway
+      ```
+    </Step>
+    
+    <Step title="Generate configuration">
+      Create your gateway configuration file:
+      
+      ```bash
+      secure-mcp-gateway generate-config
+      ```
+      
+      This creates `~/.enkrypt/enkrypt_mcp_config.json` with default settings.
+    </Step>
+    
+    <Step title="Install for your MCP client">
+      Configure the gateway for Claude Desktop, Cursor, or other MCP clients:
+      
+      ```bash Claude Desktop
+      secure-mcp-gateway install --client claude-desktop
+      ```
+      
+      ```bash Cursor
+      secure-mcp-gateway install --client cursor
+      ```
+    </Step>
+    
+    <Step title="Start using protected MCP servers">
+      Your MCP client now connects through the secure gateway with authentication, caching, and optional guardrails enabled.
+    </Step>
+  </Steps>
+</div>
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold mb-4 dark:text-white text-gray-900">Core features</h2>
+  <p className="text-lg mb-8 dark:text-gray-400 text-gray-600">Everything you need to secure and manage your MCP infrastructure</p>
+  
+  <CardGroup cols={3}>
+    <Card title="Authentication & API Keys" icon="key" href="/concepts/authentication">
+      Secure API key management with project-based access control and automatic key rotation
+    </Card>
+    <Card title="Input/Output Guardrails" icon="shield-halved" href="/features/guardrails">
+      Block malicious prompts, detect PII, prevent injection attacks, and validate responses
+    </Card>
+    <Card title="OAuth 2.0/2.1 Support" icon="lock" href="/features/oauth">
+      Full OAuth support with mutual TLS (mTLS), token caching, and automatic refresh
+    </Card>
+    <Card title="Multi-level Caching" icon="database" href="/features/caching">
+      Local and external Redis/KeyDB caching for tool discovery and configuration
+    </Card>
+    <Card title="OpenTelemetry Observability" icon="chart-line" href="/observability/overview">
+      Distributed tracing, metrics, and logging with Prometheus and Grafana integration
+    </Card>
+    <Card title="Plugin Architecture" icon="puzzle-piece" href="/features/plugins">
+      Extensible system for custom auth providers, guardrails, and telemetry backends
+    </Card>
+  </CardGroup>
+</div>
 
-## Make it yours
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold mb-4 dark:text-white text-gray-900">Explore by topic</h2>
+  <p className="text-lg mb-8 dark:text-gray-400 text-gray-600">Dive deeper into specific areas</p>
+  
+  <CardGroup cols={2}>
+    <Card title="Core Concepts" icon="book-open" href="/concepts/architecture">
+      Understand the gateway architecture, configuration system, and how it works
+    </Card>
+    <Card title="Deployment Options" icon="server" href="/deployment/local-install">
+      Learn about local installation, Docker deployment, and production patterns
+    </Card>
+    <Card title="Client Integration" icon="plug" href="/clients/claude-desktop">
+      Connect Claude Desktop, Cursor, Copilot, LangChain, and other MCP clients
+    </Card>
+    <Card title="Security Features" icon="shield-check" href="/security/overview">
+      Explore guardrail types, PII handling, and security testing tools
+    </Card>
+  </CardGroup>
+</div>
 
-Design a docs site that looks great and empowers your users.
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold mb-4 dark:text-white text-gray-900">API & CLI reference</h2>
+  <p className="text-lg mb-8 dark:text-gray-400 text-gray-600">Complete reference documentation for developers</p>
+  
+  <CardGroup cols={2}>
+    <Card title="REST API" icon="code" href="/api/overview">
+      FastAPI-based REST API for configuration management, projects, users, and API keys
+    </Card>
+    <Card title="CLI Commands" icon="terminal" href="/cli/overview">
+      Comprehensive CLI for gateway configuration, server management, and system operations
+    </Card>
+    <Card title="Gateway Tools" icon="wrench" href="/tools/overview">
+      Built-in MCP tools for server listing, tool discovery, and secure execution
+    </Card>
+    <Card title="Plugin Development" icon="code-branch" href="/plugins/overview">
+      Create custom auth providers, guardrail implementations, and telemetry backends
+    </Card>
+  </CardGroup>
+</div>
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
-
-## Create beautiful pages
-
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<div className="mt-20 mb-16 max-w-5xl mx-auto px-6">
+  <div className="rounded-2xl p-8 dark:bg-[#1a1d27] bg-gray-100 dark:border-[#27272a] border-gray-200 border text-center">
+    <h2 className="text-3xl font-bold mb-4 dark:text-white text-gray-900">Ready to secure your MCP infrastructure?</h2>
+    <p className="text-lg mb-6 dark:text-gray-400 text-gray-600 max-w-2xl mx-auto">
+      Start protecting your Model Context Protocol servers with enterprise-grade security in minutes
+    </p>
+    <a
+      href="/quickstart"
+      className="inline-flex items-center px-8 py-3.5 rounded-lg font-semibold text-white transition-all"
+      style={{ background: 'linear-gradient(90deg, #fb5e47 0%, #fb67c4 100%)' }}
+    >
+      Get Started Now
+      <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+      </svg>
+    </a>
+  </div>
+</div>

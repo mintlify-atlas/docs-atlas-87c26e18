@@ -1,0 +1,639 @@
+---
+title: 'OAuth Configuration'
+description: 'Complete guide to OAuth 2.0/2.1 authentication, mTLS, and token management'
+icon: 'lock'
+---
+
+## Overview
+
+Secure MCP Gateway provides comprehensive OAuth 2.0 and 2.1 support for authenticating with remote MCP servers. This includes client credentials flow, mutual TLS (mTLS), automatic token management, and secure token caching.
+
+## Supported Features
+
+<CardGroup cols={2}>
+  <Card title="OAuth 2.0 & 2.1" icon="shield-check">
+    Full specification compliance with security best practices
+  </Card>
+  
+  <Card title="Client Credentials" icon="key">
+    Server-to-server authentication flow
+  </Card>
+  
+  <Card title="Mutual TLS (mTLS)" icon="certificate">
+    Enhanced security with client certificates (RFC 8705)
+  </Card>
+  
+  <Card title="Token Caching" icon="database">
+    Automatic caching with proactive refresh
+  </Card>
+  
+  <Card title="Token Revocation" icon="ban">
+    RFC 7009 compliant token revocation
+  </Card>
+  
+  <Card title="Scope Validation" icon="list-check">
+    Verifies returned tokens have requested scopes
+  </Card>
+  
+  <Card title="Retry Logic" icon="rotate">
+    Exponential backoff for transient failures
+  </Card>
+  
+  <Card title="Metrics & Monitoring" icon="chart-line">
+    Comprehensive tracking of OAuth operations
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+### Basic OAuth 2.1 Setup
+
+<Steps>
+  <Step title="Obtain OAuth Credentials">
+    Get your client ID and secret from your OAuth provider (Auth0, Okta, Keycloak, etc.)
+  </Step>
+  
+  <Step title="Add Server with OAuth">
+    ```bash
+    secure-mcp-gateway config add-server \
+      --config-name "default_config" \
+      --server-name "oauth-api" \
+      --server-command "npx" \
+      --args="-y,mcp-remote,https://api.example.com/mcp" \
+      --description "OAuth-protected remote server"
+    ```
+  </Step>
+  
+  <Step title="Configure OAuth">
+    Edit `~/.enkrypt/enkrypt_mcp_config.json` and add OAuth config:
+    ```json
+    {
+      "server_name": "oauth-api",
+      "oauth_config": {
+        "enabled": true,
+        "is_remote": true,
+        "OAUTH_VERSION": "2.1",
+        "OAUTH_CLIENT_ID": "your-client-id",
+        "OAUTH_CLIENT_SECRET": "your-client-secret",
+        "OAUTH_TOKEN_URL": "https://auth.example.com/oauth/token",
+        "OAUTH_AUDIENCE": "https://api.example.com"
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Test Connection">
+    Restart Claude Desktop and test:
+    ```
+    List all servers and discover tools from oauth-api
+    ```
+  </Step>
+</Steps>
+
+## Configuration Reference
+
+### Minimal Configuration
+
+```json
+{
+  "oauth_config": {
+    "enabled": true,
+    "OAUTH_VERSION": "2.1",
+    "OAUTH_GRANT_TYPE": "client_credentials",
+    "OAUTH_CLIENT_ID": "your-client-id",
+    "OAUTH_CLIENT_SECRET": "your-client-secret",
+    "OAUTH_TOKEN_URL": "https://auth.example.com/oauth/token"
+  }
+}
+```
+
+### Complete Configuration
+
+```json
+{
+  "oauth_config": {
+    // Required
+    "enabled": true,
+    "OAUTH_VERSION": "2.1",
+    "OAUTH_GRANT_TYPE": "client_credentials",
+    "OAUTH_CLIENT_ID": "your-client-id",
+    "OAUTH_CLIENT_SECRET": "your-client-secret",
+    "OAUTH_TOKEN_URL": "https://auth.example.com/oauth/token",
+    
+    // Server detection
+    "is_remote": true,
+    
+    // Token scope and audience
+    "OAUTH_AUDIENCE": "https://api.example.com",
+    "OAUTH_ORGANIZATION": "org-123",
+    "OAUTH_SCOPE": "read write delete",
+    "OAUTH_RESOURCE": "https://resource.example.com",
+    
+    // Security settings
+    "OAUTH_USE_BASIC_AUTH": true,
+    "OAUTH_ENFORCE_HTTPS": true,
+    "OAUTH_TOKEN_IN_HEADER_ONLY": true,
+    "OAUTH_VALIDATE_SCOPES": true,
+    
+    // Token management
+    "OAUTH_TOKEN_EXPIRY_BUFFER": 300,
+    
+    // Mutual TLS (optional)
+    "OAUTH_USE_MTLS": false,
+    "OAUTH_CLIENT_CERT_PATH": "~/.certs/client.pem",
+    "OAUTH_CLIENT_KEY_PATH": "~/.certs/client-key.pem",
+    "OAUTH_CA_BUNDLE_PATH": "~/.certs/ca-bundle.pem",
+    
+    // Token revocation
+    "OAUTH_REVOCATION_URL": "https://auth.example.com/oauth/revoke",
+    
+    // Advanced
+    "OAUTH_ADDITIONAL_PARAMS": {},
+    "OAUTH_CUSTOM_HEADERS": {}
+  }
+}
+```
+
+## Configuration Fields
+
+### Core Settings
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `enabled` | boolean | Yes | `false` | Enable OAuth for this server |
+| `OAUTH_VERSION` | string | No | `"2.0"` | OAuth version: `"2.0"` or `"2.1"` |
+| `OAUTH_GRANT_TYPE` | string | No | `"client_credentials"` | Only client_credentials supported |
+| `OAUTH_CLIENT_ID` | string | Yes* | - | OAuth client ID |
+| `OAUTH_CLIENT_SECRET` | string | Yes* | - | OAuth client secret |
+| `OAUTH_TOKEN_URL` | string | Yes | - | Token endpoint (HTTPS required for 2.1) |
+
+*Required when `enabled: true`
+
+### Server Detection
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `is_remote` | boolean | Explicitly mark as remote server (recommended) |
+
+<Note>
+The gateway auto-detects remote servers by checking for `npx`, `mcp-remote`, `curl`, or `http(s)://` in command/args. Set `is_remote: true` explicitly to avoid false detection.
+</Note>
+
+### Scope & Audience
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `OAUTH_AUDIENCE` | string | Intended audience for the token |
+| `OAUTH_ORGANIZATION` | string | Organization identifier |
+| `OAUTH_SCOPE` | string | Space-separated scopes (e.g., `"read write"`) |
+| `OAUTH_RESOURCE` | string | Resource Indicator (OAuth 2.1, RFC 8707) |
+
+### Security Settings
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `OAUTH_USE_BASIC_AUTH` | boolean | `true` | Use HTTP Basic Auth (`client_secret_basic`) |
+| `OAUTH_ENFORCE_HTTPS` | boolean | `true` | Require HTTPS for token URL |
+| `OAUTH_TOKEN_IN_HEADER_ONLY` | boolean | `true` | Never use query params for tokens |
+| `OAUTH_VALIDATE_SCOPES` | boolean | `true` | Validate returned token has requested scopes |
+
+<Tip>
+**OAuth 2.1 Compliance**
+- Requires `OAUTH_ENFORCE_HTTPS: true`
+- Recommends `OAUTH_USE_BASIC_AUTH: true`
+- Enforces `OAUTH_TOKEN_IN_HEADER_ONLY: true`
+</Tip>
+
+### Token Management
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `OAUTH_TOKEN_EXPIRY_BUFFER` | integer | `300` | Seconds before expiry to refresh token |
+
+**How Token Refresh Works:**
+
+<Steps>
+  <Step title="Token Acquired">
+    Token obtained with `expires_in: 3600` (1 hour)
+  </Step>
+  
+  <Step title="Cached with Expiry">
+    Cached with `expires_at` timestamp
+  </Step>
+  
+  <Step title="Proactive Refresh">
+    Refreshed when `expires_at - 300s < now` (5 min before expiry)
+  </Step>
+  
+  <Step title="Automatic Retry">
+    On failure, retry with exponential backoff (2s, 4s, 8s)
+  </Step>
+</Steps>
+
+## Mutual TLS (mTLS)
+
+### What is mTLS?
+
+Mutual TLS provides enhanced security by requiring **both** client and server to present certificates during the TLS handshake. This is specified in [RFC 8705](https://datatracker.ietf.org/doc/html/rfc8705).
+
+### Setting Up mTLS
+
+<Steps>
+  <Step title="Generate Client Certificate">
+    Generate a client certificate and private key:
+    ```bash
+    # Generate private key
+    openssl genrsa -out client-key.pem 2048
+    
+    # Generate certificate signing request
+    openssl req -new -key client-key.pem -out client.csr
+    
+    # Generate self-signed certificate (or get signed by CA)
+    openssl x509 -req -days 365 -in client.csr \
+      -signkey client-key.pem -out client.pem
+    
+    # Set permissions
+    chmod 600 client-key.pem client.pem
+    ```
+  </Step>
+  
+  <Step title="Upload Certificate to OAuth Provider">
+    Register your client certificate with your OAuth provider (Auth0, Okta, etc.)
+  </Step>
+  
+  <Step title="Configure Gateway">
+    ```json
+    {
+      "oauth_config": {
+        "enabled": true,
+        "OAUTH_USE_MTLS": true,
+        "OAUTH_CLIENT_CERT_PATH": "~/.certs/client.pem",
+        "OAUTH_CLIENT_KEY_PATH": "~/.certs/client-key.pem",
+        "OAUTH_CA_BUNDLE_PATH": "~/.certs/ca-bundle.pem",
+        "OAUTH_CLIENT_ID": "your-client-id",
+        "OAUTH_CLIENT_SECRET": "your-client-secret",
+        "OAUTH_TOKEN_URL": "https://auth.example.com/oauth/token"
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Test Connection">
+    The gateway will automatically use the certificate for all OAuth requests.
+  </Step>
+</Steps>
+
+<Warning>
+**Certificate Security**
+- Store certificates in secure directory with `chmod 600`
+- Never commit certificates to version control
+- Rotate certificates before expiry
+- Use different certificates for different environments
+</Warning>
+
+## Token Injection
+
+### For Remote Servers
+
+Tokens are automatically injected as HTTP headers:
+
+```bash
+npx -y mcp-remote https://api.example.com/mcp \
+  --header "Authorization: Bearer eyJhbGci..."
+```
+
+The gateway handles this automatically when `is_remote: true`.
+
+### For Local Servers
+
+Tokens are injected as environment variables:
+
+```bash
+ENKRYPT_ACCESS_TOKEN=eyJhbGci...
+AUTHORIZATION=Bearer eyJhbGci...
+OAUTH_ACCESS_TOKEN=eyJhbGci...
+OAUTH_TOKEN_TYPE=Bearer
+HTTP_HEADER_Authorization=Bearer eyJhbGci...
+HTTP_HEADER_AUTHORIZATION=Bearer eyJhbGci...
+```
+
+Your MCP server can read these variables to authenticate with remote APIs.
+
+## Provider-Specific Examples
+
+### Auth0
+
+<CodeGroup>
+```json Configuration
+{
+  "oauth_config": {
+    "enabled": true,
+    "OAUTH_VERSION": "2.1",
+    "OAUTH_GRANT_TYPE": "client_credentials",
+    "OAUTH_CLIENT_ID": "your-auth0-client-id",
+    "OAUTH_CLIENT_SECRET": "your-auth0-client-secret",
+    "OAUTH_TOKEN_URL": "https://yourtenant.auth0.com/oauth/token",
+    "OAUTH_AUDIENCE": "https://yourapi.example.com",
+    "OAUTH_SCOPE": "read:data write:data"
+  }
+}
+```
+
+```bash Getting Credentials
+# 1. Log into Auth0 Dashboard
+# 2. Applications → Create Application → Machine to Machine
+# 3. Authorize the application for your API
+# 4. Copy Client ID and Client Secret
+# 5. Set Audience to your API identifier
+```
+</CodeGroup>
+
+### Okta
+
+```json
+{
+  "oauth_config": {
+    "enabled": true,
+    "OAUTH_VERSION": "2.0",
+    "OAUTH_CLIENT_ID": "okta-client-id",
+    "OAUTH_CLIENT_SECRET": "okta-client-secret",
+    "OAUTH_TOKEN_URL": "https://dev-123456.okta.com/oauth2/default/v1/token",
+    "OAUTH_REVOCATION_URL": "https://dev-123456.okta.com/oauth2/default/v1/revoke",
+    "OAUTH_AUDIENCE": "api://default",
+    "OAUTH_SCOPE": "custom.scope"
+  }
+}
+```
+
+### Keycloak
+
+```json
+{
+  "oauth_config": {
+    "enabled": true,
+    "OAUTH_VERSION": "2.0",
+    "OAUTH_CLIENT_ID": "keycloak-client",
+    "OAUTH_CLIENT_SECRET": "keycloak-secret",
+    "OAUTH_TOKEN_URL": "https://keycloak.example.com/realms/myrealm/protocol/openid-connect/token",
+    "OAUTH_AUDIENCE": "account",
+    "OAUTH_SCOPE": "openid profile email",
+    "OAUTH_ADDITIONAL_PARAMS": {
+      "realm": "myrealm"
+    }
+  }
+}
+```
+
+### GitHub Apps (mTLS)
+
+```json
+{
+  "oauth_config": {
+    "enabled": true,
+    "OAUTH_VERSION": "2.0",
+    "OAUTH_CLIENT_ID": "github-app-client-id",
+    "OAUTH_CLIENT_SECRET": "github-app-client-secret",
+    "OAUTH_TOKEN_URL": "https://github.com/login/oauth/access_token",
+    "OAUTH_USE_MTLS": true,
+    "OAUTH_CLIENT_CERT_PATH": "~/.ssh/github-app.pem",
+    "OAUTH_CLIENT_KEY_PATH": "~/.ssh/github-app-key.pem"
+  }
+}
+```
+
+## Monitoring & Troubleshooting
+
+### Enable Debug Logging
+
+```json
+{
+  "common_mcp_gateway_config": {
+    "enkrypt_log_level": "DEBUG"
+  }
+}
+```
+
+Logs will show:
+```
+[OAuthService] Token request correlation_id=f47ac10b for oauth-api
+[OAuthService] Successfully obtained token, expires in 3600s
+[OAuthService] Token cached for oauth-api (config: abc-123)
+```
+
+### Common Errors
+
+<AccordionGroup>
+  <Accordion title="Invalid Credentials">
+    ```
+    OAuth token request failed: invalid_client
+    ```
+    **Solution:** Verify `OAUTH_CLIENT_ID` and `OAUTH_CLIENT_SECRET` are correct
+  </Accordion>
+
+  <Accordion title="HTTPS Required">
+    ```
+    OAuth 2.1 requires HTTPS for token_url
+    ```
+    **Solution:** Use `https://` URL or set `OAUTH_VERSION: "2.0"`
+  </Accordion>
+
+  <Accordion title="Certificate Not Found">
+    ```
+    Client certificate not found: /path/to/cert.pem
+    ```
+    **Solution:** Verify certificate path and file permissions (`chmod 600`)
+  </Accordion>
+
+  <Accordion title="Scope Validation Failed">
+    ```
+    Token scopes validation failed. Requested: read write, Received: read
+    ```
+    **Solution:** Request correct scopes or set `OAUTH_VALIDATE_SCOPES: false`
+  </Accordion>
+
+  <Accordion title="Network Errors (Auto-Retry)">
+    ```
+    Retrying token acquisition for oauth-api, attempt 2/3
+    ```
+    **Info:** Automatic retry with exponential backoff (2s, 4s, 8s)
+  </Accordion>
+</AccordionGroup>
+
+### Viewing Metrics
+
+OAuth metrics are available programmatically:
+
+```python
+from secure_mcp_gateway.services.oauth import get_oauth_service
+
+oauth_service = get_oauth_service()
+metrics = oauth_service.get_metrics()
+
+print(metrics)
+# {
+#   "token_acquisitions_total": 150,
+#   "token_acquisitions_success": 148,
+#   "token_acquisitions_failure": 2,
+#   "token_cache_hits": 1200,
+#   "token_cache_misses": 150,
+#   "token_refreshes": 45,
+#   "cache_hit_ratio": 0.889,
+#   "success_rate": 0.987,
+#   "avg_latency_ms": 234.5,
+#   "active_tokens": 12
+# }
+```
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use OAuth 2.1" icon="shield-check">
+    OAuth 2.1 has stricter security requirements and removes deprecated features
+  </Card>
+  
+  <Card title="Enable HTTPS" icon="lock">
+    Always use HTTPS for token URLs in production
+  </Card>
+  
+  <Card title="Use Basic Auth" icon="key">
+    Prefer `client_secret_basic` over `client_secret_post`
+  </Card>
+  
+  <Card title="Validate Scopes" icon="list-check">
+    Always verify returned tokens have requested scopes
+  </Card>
+  
+  <Card title="Enable mTLS" icon="certificate">
+    Use mutual TLS for high-security environments
+  </Card>
+  
+  <Card title="Rotate Secrets" icon="rotate">
+    Regularly rotate client secrets and certificates
+  </Card>
+  
+  <Card title="Minimal Scopes" icon="minimize">
+    Request only the scopes you need (principle of least privilege)
+  </Card>
+  
+  <Card title="Secure Storage" icon="vault">
+    Store certificates with proper permissions (chmod 600)
+  </Card>
+</CardGroup>
+
+### Security Checklist
+
+<Steps>
+  <Step icon="check" title="HTTPS Enforced">
+    `OAUTH_ENFORCE_HTTPS: true` for production
+  </Step>
+  
+  <Step icon="check" title="Scope Validation Enabled">
+    `OAUTH_VALIDATE_SCOPES: true`
+  </Step>
+  
+  <Step icon="check" title="Credentials Not Committed">
+    Add `.enkrypt/` to `.gitignore`
+  </Step>
+  
+  <Step icon="check" title="Certificates Secured">
+    `chmod 600` on all certificate files
+  </Step>
+  
+  <Step icon="check" title="Different Creds per Environment">
+    Separate client IDs for dev/staging/prod
+  </Step>
+  
+  <Step icon="check" title="Monitoring Enabled">
+    Track OAuth metrics and failures
+  </Step>
+</Steps>
+
+## Advanced Topics
+
+### Token Revocation
+
+Revoke tokens programmatically:
+
+```python
+from secure_mcp_gateway.services.oauth import get_oauth_service
+
+oauth_service = get_oauth_service()
+success, error = await oauth_service.revoke_token(
+    server_name="oauth-api",
+    token="access_token_to_revoke",
+    oauth_config=config,
+    token_type_hint="access_token"
+)
+```
+
+### Force Token Refresh
+
+```python
+from secure_mcp_gateway.services.oauth import refresh_server_oauth_token
+
+token, error = await refresh_server_oauth_token(
+    server_name="oauth-api",
+    server_entry=server_config,
+    config_id="config-id"
+)
+```
+
+### Invalidate Cached Token
+
+```python
+from secure_mcp_gateway.services.oauth import invalidate_server_oauth_token
+
+await invalidate_server_oauth_token("oauth-api", "config-id")
+```
+
+## FAQ
+
+<AccordionGroup>
+  <Accordion title="Can I use authorization code grant?">
+    Not yet. Only client credentials grant is currently supported. Authorization code grant will be added in a future release.
+  </Accordion>
+
+  <Accordion title="How do I know if my server is remote?">
+    Set `is_remote: true` explicitly in `oauth_config`. Auto-detection checks for `npx`, `mcp-remote`, `curl`, or `http(s)://` in command/args.
+  </Accordion>
+
+  <Accordion title="Do tokens work with stdio MCP servers?">
+    Yes! Tokens are injected as environment variables for stdio servers.
+  </Accordion>
+
+  <Accordion title="How often are tokens refreshed?">
+    Proactively, 5 minutes (300s) before expiry by default. Configurable via `OAUTH_TOKEN_EXPIRY_BUFFER`.
+  </Accordion>
+
+  <Accordion title="Can I use OAuth without mTLS?">
+    Yes. mTLS is optional and disabled by default.
+  </Accordion>
+
+  <Accordion title="What happens if token acquisition fails?">
+    Automatic retry with exponential backoff (3 attempts: 2s, 4s, 8s). After exhaustion, returns error.
+  </Accordion>
+
+  <Accordion title="Are tokens shared across servers?">
+    No. Each server has its own cached token, keyed by `server_name` and `config_id`.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Add MCP Servers" icon="server" href="/guides/adding-mcp-servers">
+    Learn how to add and configure MCP servers
+  </Card>
+  
+  <Card title="Configure Guardrails" icon="shield-check" href="/guides/configuring-guardrails">
+    Add security layers to OAuth-protected servers
+  </Card>
+  
+  <Card title="External Cache" icon="database" href="/guides/external-cache">
+    Improve token caching with Redis/KeyDB
+  </Card>
+  
+  <Card title="Custom Plugins" icon="plug" href="/guides/custom-plugins">
+    Create custom auth providers
+  </Card>
+</CardGroup>

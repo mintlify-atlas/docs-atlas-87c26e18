@@ -1,0 +1,652 @@
+---
+title: 'User Endpoints'
+description: 'REST API endpoints for user management and user-project associations'
+---
+
+## Overview
+
+User endpoints allow you to create and manage users, view their project associations, and manage their API keys. Users are the entities that authenticate to the gateway and are associated with specific projects.
+
+## List All Users
+
+Retrieve a list of all users in the system.
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8001/api/v1/users" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:8001/api/v1/users",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+users = response.json()
+```
+
+```javascript JavaScript
+const response = await fetch('http://localhost:8001/api/v1/users', {
+  headers: { 'Authorization': `Bearer ${adminKey}` }
+});
+const users = await response.json();
+```
+</CodeGroup>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Users retrieved successfully",
+  "data": [
+    {
+      "user_id": "440e8400-e29b-41d4-a716-446655440000",
+      "email": "alice@example.com",
+      "projects_count": 2,
+      "api_keys_count": 3,
+      "created_at": "2024-01-01T12:00:00.000000"
+    },
+    {
+      "user_id": "330e8400-e29b-41d4-a716-446655440000",
+      "email": "bob@example.com",
+      "projects_count": 1,
+      "api_keys_count": 1,
+      "created_at": "2024-01-01T12:00:00.000000"
+    }
+  ],
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+<ResponseField name="data" type="array">
+  <Expandable title="User Object">
+    <ResponseField name="user_id" type="string" required>
+      Unique identifier for the user
+    </ResponseField>
+    <ResponseField name="email" type="string" required>
+      User's email address (must be unique)
+    </ResponseField>
+    <ResponseField name="projects_count" type="integer" required>
+      Number of projects the user belongs to
+    </ResponseField>
+    <ResponseField name="api_keys_count" type="integer" required>
+      Number of active API keys for the user
+    </ResponseField>
+    <ResponseField name="created_at" type="string" required>
+      ISO 8601 timestamp of user creation
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Create User
+
+Create a new user with an email address.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/users" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "newuser@example.com"}'
+```
+
+```python Python
+response = requests.post(
+    "http://localhost:8001/api/v1/users",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"email": "newuser@example.com"}
+)
+result = response.json()
+```
+
+```javascript JavaScript
+const response = await fetch('http://localhost:8001/api/v1/users', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${adminKey}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ email: 'newuser@example.com' })
+});
+const result = await response.json();
+```
+</CodeGroup>
+
+<ParamField body="email" type="string" required>
+  Valid email address for the new user (must be unique)
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "User created successfully",
+  "data": {
+    "user_id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "newuser@example.com"
+  },
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+**Error Response:** `400 Bad Request` (if email already exists)
+
+```json
+{
+  "error": "User creation failed",
+  "detail": "User with email newuser@example.com already exists",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Get User
+
+Retrieve details of a specific user.
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8001/api/v1/users/{user_identifier}" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.get(
+    f"http://localhost:8001/api/v1/users/{user_id}",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+user = response.json()
+```
+</CodeGroup>
+
+<ParamField path="user_identifier" type="string" required>
+  User ID or email address
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "User retrieved successfully",
+  "data": {
+    "user_id": "440e8400-e29b-41d4-a716-446655440000",
+    "email": "alice@example.com",
+    "projects": [
+      {
+        "project_id": "660e8400-e29b-41d4-a716-446655440000",
+        "project_name": "development-project"
+      },
+      {
+        "project_id": "770e8400-e29b-41d4-a716-446655440000",
+        "project_name": "staging-project"
+      }
+    ],
+    "api_keys_count": 3,
+    "created_at": "2024-01-01T12:00:00.000000"
+  },
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Update User
+
+Update a user's email address.
+
+<CodeGroup>
+```bash cURL
+curl -X PUT "http://localhost:8001/api/v1/users/{user_identifier}" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"new_email": "newemail@example.com"}'
+```
+
+```python Python
+response = requests.put(
+    f"http://localhost:8001/api/v1/users/{user_id}",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"new_email": "newemail@example.com"}
+)
+```
+</CodeGroup>
+
+<ParamField path="user_identifier" type="string" required>
+  User ID or current email address
+</ParamField>
+
+<ParamField body="new_email" type="string" required>
+  New email address for the user (must be unique)
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "User updated successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Delete User
+
+Delete a user and optionally force deletion even if they have active projects or API keys.
+
+<Warning>
+  Deleting a user will invalidate all their API keys and remove them from all projects.
+</Warning>
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE "http://localhost:8001/api/v1/users/{user_identifier}" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"force": false}'
+```
+
+```python Python
+response = requests.delete(
+    f"http://localhost:8001/api/v1/users/{user_id}",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"force": False}
+)
+```
+</CodeGroup>
+
+<ParamField path="user_identifier" type="string" required>
+  User ID or email address
+</ParamField>
+
+<ParamField body="force" type="boolean">
+  Force deletion even if user has active projects or API keys (default: false)
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "User deleted successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+**Error Response:** `400 Bad Request` (if force=false and user has dependencies)
+
+```json
+{
+  "error": "User deletion failed",
+  "detail": "User has active projects or API keys. Use force=true to delete anyway.",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## List User Projects
+
+Get all projects a user belongs to.
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8001/api/v1/users/{user_identifier}/projects" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.get(
+    f"http://localhost:8001/api/v1/users/{user_id}/projects",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+projects = response.json()
+```
+</CodeGroup>
+
+<ParamField path="user_identifier" type="string" required>
+  User ID or email address
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "User projects retrieved successfully",
+  "data": [
+    {
+      "project_id": "660e8400-e29b-41d4-a716-446655440000",
+      "project_name": "development-project",
+      "mcp_config_name": "dev-config",
+      "created_at": "2024-01-01T12:00:00.000000"
+    },
+    {
+      "project_id": "770e8400-e29b-41d4-a716-446655440000",
+      "project_name": "production-project",
+      "mcp_config_name": "prod-config",
+      "created_at": "2024-01-01T12:00:00.000000"
+    }
+  ],
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## List User API Keys
+
+Get all API keys for a user, optionally filtered by project.
+
+<CodeGroup>
+```bash cURL
+# All API keys for user
+curl -X GET "http://localhost:8001/api/v1/users/{user_identifier}/api-keys" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+
+# API keys for specific project
+curl -X GET "http://localhost:8001/api/v1/users/{user_identifier}/api-keys?project_identifier=project-name" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+# All API keys
+response = requests.get(
+    f"http://localhost:8001/api/v1/users/{user_id}/api-keys",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+
+# Filtered by project
+response = requests.get(
+    f"http://localhost:8001/api/v1/users/{user_id}/api-keys",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    params={"project_identifier": "project-name"}
+)
+```
+</CodeGroup>
+
+<ParamField path="user_identifier" type="string" required>
+  User ID or email address
+</ParamField>
+
+<ParamField query="project_identifier" type="string">
+  Optional project ID or name to filter API keys
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "User API keys retrieved successfully",
+  "data": [
+    {
+      "api_key": "gw_abc123...xyz789",
+      "project_id": "660e8400-e29b-41d4-a716-446655440000",
+      "project_name": "development-project",
+      "created_at": "2024-01-01T12:00:00.000000",
+      "status": "active"
+    },
+    {
+      "api_key": "gw_def456...uvw012",
+      "project_id": "770e8400-e29b-41d4-a716-446655440000",
+      "project_name": "production-project",
+      "created_at": "2024-01-02T12:00:00.000000",
+      "status": "active"
+    }
+  ],
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Generate User API Key
+
+Generate a new API key for a user within a specific project.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/users/{user_identifier}/api-keys" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"project_name": "development-project"}'
+```
+
+```python Python
+response = requests.post(
+    f"http://localhost:8001/api/v1/users/{user_id}/api-keys",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"project_name": "development-project"}
+)
+result = response.json()
+api_key = result["data"]["api_key"]
+```
+</CodeGroup>
+
+<ParamField path="user_identifier" type="string" required>
+  User ID or email address
+</ParamField>
+
+<ParamField body="project_name" type="string">
+  Project name (either project_name or project_id required)
+</ParamField>
+
+<ParamField body="project_id" type="string">
+  Project ID (either project_name or project_id required)
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "API key generated successfully",
+  "data": {
+    "api_key": "gw_abc123xyz789def456uvw012pqr345stu678"
+  },
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+<Warning>
+  Store the API key securely. It cannot be retrieved again after this response.
+</Warning>
+
+**Error Response:** `400 Bad Request` (if user is not in project)
+
+```json
+{
+  "error": "API key generation failed",
+  "detail": "User is not a member of the specified project",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Delete All User API Keys
+
+Delete all API keys for a specific user.
+
+<Warning>
+  This will invalidate all API keys for the user across all projects.
+</Warning>
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE "http://localhost:8001/api/v1/users/{user_identifier}/api-keys" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.delete(
+    f"http://localhost:8001/api/v1/users/{user_id}/api-keys",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+```
+</CodeGroup>
+
+<ParamField path="user_identifier" type="string" required>
+  User ID or email address
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "All user API keys deleted successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Search Users
+
+Search users by email address.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/users/search" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"search_term": "alice"}'
+```
+
+```python Python
+response = requests.post(
+    "http://localhost:8001/api/v1/users/search",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"search_term": "alice"}
+)
+results = response.json()
+```
+</CodeGroup>
+
+<ParamField body="search_term" type="string" required>
+  Search query (matches against email addresses)
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Search completed successfully",
+  "data": [
+    {
+      "user_id": "440e8400-e29b-41d4-a716-446655440000",
+      "email": "alice@example.com",
+      "projects_count": 2,
+      "created_at": "2024-01-01T12:00:00.000000"
+    },
+    {
+      "user_id": "550e8400-e29b-41d4-a716-446655440000",
+      "email": "alice.smith@example.com",
+      "projects_count": 1,
+      "created_at": "2024-01-01T12:00:00.000000"
+    }
+  ],
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Complete User Management Example
+
+Here's a complete workflow for managing users:
+
+```python
+import requests
+
+class GatewayUserManager:
+    def __init__(self, base_url, admin_key):
+        self.base_url = base_url
+        self.headers = {
+            "Authorization": f"Bearer {admin_key}",
+            "Content-Type": "application/json"
+        }
+    
+    def create_user(self, email):
+        """Create a new user"""
+        response = requests.post(
+            f"{self.base_url}/users",
+            headers=self.headers,
+            json={"email": email}
+        )
+        return response.json()
+    
+    def add_to_project(self, user_email, project_name):
+        """Add user to a project"""
+        response = requests.post(
+            f"{self.base_url}/projects/{project_name}/users",
+            headers=self.headers,
+            json={"email": user_email}
+        )
+        return response.json()
+    
+    def generate_api_key(self, user_email, project_name):
+        """Generate API key for user in project"""
+        response = requests.post(
+            f"{self.base_url}/users/{user_email}/api-keys",
+            headers=self.headers,
+            json={"project_name": project_name}
+        )
+        return response.json()["data"]["api_key"]
+    
+    def onboard_user(self, email, project_name):
+        """Complete user onboarding workflow"""
+        # Create user
+        user_result = self.create_user(email)
+        print(f"Created user: {user_result}")
+        
+        # Add to project
+        project_result = self.add_to_project(email, project_name)
+        print(f"Added to project: {project_result}")
+        
+        # Generate API key
+        api_key = self.generate_api_key(email, project_name)
+        print(f"Generated API key: {api_key}")
+        
+        return {
+            "email": email,
+            "project": project_name,
+            "api_key": api_key
+        }
+
+# Usage
+manager = GatewayUserManager(
+    base_url="http://localhost:8001/api/v1",
+    admin_key="your-admin-key"
+)
+
+# Onboard a new user
+result = manager.onboard_user(
+    email="newdev@example.com",
+    project_name="development-project"
+)
+
+print(f"User onboarded successfully!")
+print(f"API Key: {result['api_key']}")
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Key Management" icon="key" href="/api/api-keys">
+    Detailed API key operations
+  </Card>
+  <Card title="Project Endpoints" icon="folder" href="/api/projects">
+    Manage user-project associations
+  </Card>
+  <Card title="Configuration Endpoints" icon="gear" href="/api/configurations">
+    Configure MCP servers
+  </Card>
+  <Card title="System Endpoints" icon="server" href="/api/system">
+    System operations
+  </Card>
+</CardGroup>

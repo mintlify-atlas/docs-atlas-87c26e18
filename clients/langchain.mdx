@@ -1,0 +1,455 @@
+---
+title: 'LangChain Integration'
+description: 'Comprehensive security guardrails for LangChain and LangGraph applications'
+icon: 'link'
+---
+
+## Overview
+
+The Secure MCP Gateway provides two Python modules for protecting LangChain and LangGraph applications:
+
+1. **LangChain Module** - `BaseCallbackHandler` for any LangChain component
+2. **LangGraph Module** - `pre_model_hook` and `post_model_hook` for LangGraph agents
+
+---
+
+## LangChain Integration
+
+Use the `EnkryptGuardrailsHandler` to protect any LangChain component including LLMs, chains, agents, tools, and retrievers.
+
+### Installation
+
+```bash
+cd hooks/langchain
+pip install -r requirements.txt
+```
+
+### Configure Guardrails
+
+```bash
+cp guardrails_config_example.json guardrails_config.json
+# Edit with your API key
+
+export ENKRYPT_API_KEY="your-api-key"
+```
+
+### Basic Usage
+
+```python
+from langchain_openai import ChatOpenAI
+from enkrypt_guardrails_handler import EnkryptGuardrailsHandler
+
+# Create the guardrails handler
+handler = EnkryptGuardrailsHandler()
+
+# Use with any LangChain component
+llm = ChatOpenAI(model="gpt-4", callbacks=[handler])
+
+# The handler will automatically validate inputs and monitor outputs
+response = llm.invoke("What is the weather today?")
+```
+
+---
+
+## Supported Hooks
+
+The `EnkryptGuardrailsHandler` implements all LangChain `BaseCallbackHandler` methods:
+
+| Hook | Description | Default Checks |
+|------|-------------|----------------|
+| `on_llm_start` | Before LLM call | injection_attack, pii, toxicity |
+| `on_llm_end` | After LLM response | pii, toxicity, nsfw |
+| `on_chat_model_start` | Before chat model call | injection_attack, pii, toxicity |
+| `on_chain_start` | Before chain execution | injection_attack, pii |
+| `on_chain_end` | After chain completion | pii, toxicity |
+| `on_tool_start` | Before tool execution | injection_attack, pii |
+| `on_tool_end` | After tool execution | pii |
+| `on_agent_action` | On agent decision | injection_attack |
+| `on_agent_finish` | On agent completion | pii, toxicity, nsfw |
+| `on_retriever_start` | Before retriever query | injection_attack |
+| `on_retriever_end` | After document retrieval | pii |
+
+---
+
+## Usage Examples
+
+### With Chains
+
+```python
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+from enkrypt_guardrails_handler import EnkryptGuardrailsHandler
+
+handler = EnkryptGuardrailsHandler()
+
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a helpful assistant."),
+    ("user", "{input}")
+])
+
+llm = ChatOpenAI()
+
+# Add handler to the chain
+chain = prompt | llm
+chain = chain.with_config(callbacks=[handler])
+
+response = chain.invoke({"input": "What is machine learning?"})
+```
+
+### With Agents
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain.agents import create_react_agent, AgentExecutor
+from langchain_core.tools import tool
+from enkrypt_guardrails_handler import EnkryptGuardrailsHandler
+
+handler = EnkryptGuardrailsHandler()
+
+@tool
+def search(query: str) -> str:
+    """Search for information."""
+    return f"Results for: {query}"
+
+llm = ChatOpenAI()
+tools = [search]
+
+# Create agent with guardrails
+agent = create_react_agent(llm, tools, prompt)
+agent_executor = AgentExecutor(
+    agent=agent,
+    tools=tools,
+    callbacks=[handler]
+)
+
+result = agent_executor.invoke({"input": "Search for Python tutorials"})
+```
+
+### With Retrievers (RAG)
+
+```python
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_community.vectorstores import FAISS
+from langchain.chains import RetrievalQA
+from enkrypt_guardrails_handler import EnkryptGuardrailsHandler
+
+handler = EnkryptGuardrailsHandler()
+
+# Create retriever
+embeddings = OpenAIEmbeddings()
+vectorstore = FAISS.from_texts(["Document 1", "Document 2"], embeddings)
+retriever = vectorstore.as_retriever()
+
+# Create RAG chain with guardrails
+llm = ChatOpenAI()
+qa_chain = RetrievalQA.from_chain_type(
+    llm=llm,
+    retriever=retriever,
+    callbacks=[handler]
+)
+
+result = qa_chain.invoke("What is in Document 1?")
+```
+
+### Audit-Only Mode
+
+```python
+# Log violations without blocking
+handler = EnkryptGuardrailsHandler(
+    raise_on_violation=False,  # Don't raise exceptions
+    audit_only=True,           # Just log violations
+)
+```
+
+### Disable Sensitive Tool Blocking
+
+```python
+handler = EnkryptGuardrailsHandler(
+    block_sensitive_tools=False,  # Allow sensitive tools
+)
+```
+
+---
+
+## LangGraph Integration
+
+For LangGraph's `create_react_agent`, use `pre_model_hook` and `post_model_hook`.
+
+### Installation
+
+```bash
+cd hooks/langgraph
+pip install -r requirements.txt
+```
+
+### Basic Usage
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain_core.tools import tool
+from enkrypt_guardrails_hook import create_pre_model_hook, create_post_model_hook
+from langgraph.prebuilt import create_react_agent
+
+# Define your tools
+@tool
+def search(query: str) -> str:
+    """Search for information."""
+    return f"Results for {query}"
+
+# Create model and tools
+model = ChatOpenAI(model="gpt-4")
+tools = [search]
+
+# Create hooks
+pre_hook = create_pre_model_hook(block_on_violation=True)
+post_hook = create_post_model_hook(block_on_violation=True)
+
+# Create agent with guardrails
+agent = create_react_agent(
+    model,
+    tools,
+    pre_model_hook=pre_hook,
+    post_model_hook=post_hook,
+)
+
+# Use the agent
+result = agent.invoke({"messages": [("user", "Search for LangGraph docs")]})
+```
+
+### Convenience Functions
+
+```python
+from enkrypt_guardrails_hook import create_protected_agent, create_audit_only_agent
+
+# Create fully protected agent
+agent = create_protected_agent(
+    model,
+    tools,
+    block_on_violation=True,
+    wrap_agent_tools=True,  # Also protect tool calls
+)
+
+# Create audit-only agent
+audit_agent = create_audit_only_agent(model, tools)
+```
+
+### Tool Wrapping
+
+```python
+from enkrypt_guardrails_hook import wrap_tools, EnkryptToolWrapper
+
+# Wrap multiple tools
+protected_tools = wrap_tools(tools, block_on_violation=True)
+
+# Or wrap individually
+wrapper = EnkryptToolWrapper(
+    my_tool,
+    block_on_violation=True,
+    check_inputs=True,
+    check_outputs=True,
+)
+protected_tool = wrapper.tool
+```
+
+---
+
+## Configuration
+
+### LangChain Configuration
+
+```json guardrails_config.json
+{
+  "enkrypt_api": {
+    "url": "https://api.enkryptai.com/guardrails/policy/detect",
+    "api_key": "YOUR_ENKRYPT_API_KEY",
+    "ssl_verify": true,
+    "timeout": 15,
+    "fail_silently": true
+  },
+  "on_llm_start": {
+    "enabled": true,
+    "guardrail_name": "Sample Airline Guardrail",
+    "block": ["injection_attack", "pii", "toxicity"]
+  },
+  "on_tool_start": {
+    "enabled": true,
+    "guardrail_name": "Tool Input Policy",
+    "block": ["injection_attack", "pii"]
+  },
+  "sensitive_tools": [
+    "execute_sql",
+    "run_command",
+    "shell_*",
+    "bash",
+    "delete_*",
+    "write_file",
+    "python_repl"
+  ]
+}
+```
+
+### LangGraph Configuration
+
+```json guardrails_config.json
+{
+  "enkrypt_api": {
+    "url": "https://api.enkryptai.com/guardrails/policy/detect",
+    "api_key": "YOUR_ENKRYPT_API_KEY",
+    "ssl_verify": true,
+    "timeout": 15,
+    "fail_silently": true
+  },
+  "pre_model_hook": {
+    "enabled": true,
+    "guardrail_name": "Sample Airline Guardrail",
+    "block": ["injection_attack", "pii", "toxicity", "nsfw"]
+  },
+  "post_model_hook": {
+    "enabled": true,
+    "guardrail_name": "Sample Airline Guardrail",
+    "block": ["pii", "toxicity", "nsfw"]
+  },
+  "before_tool_call": {
+    "enabled": true,
+    "guardrail_name": "Sample Airline Guardrail",
+    "block": ["injection_attack", "pii"]
+  },
+  "after_tool_call": {
+    "enabled": true,
+    "guardrail_name": "Sample Airline Guardrail",
+    "block": ["pii"]
+  }
+}
+```
+
+---
+
+## Available Detectors
+
+| Detector | Description |
+|----------|-------------|
+| `injection_attack` | Prompt injection attempts |
+| `pii` | Personal Identifiable Information |
+| `toxicity` | Toxic/harmful content |
+| `nsfw` | Not Safe For Work content |
+| `keyword_detector` | Banned keywords |
+| `policy_violation` | Custom policy violations |
+| `bias` | Biased content |
+| `topic_detector` | Off-topic content |
+
+---
+
+## Logging
+
+Logs are written to `~/langchain/guardrails_logs/` or `~/langgraph/guardrails_logs/`:
+
+- `on_llm_start.jsonl` / `pre_model_hook.jsonl` - Input validation
+- `on_llm_end.jsonl` / `post_model_hook.jsonl` - Output validation
+- `on_tool_start.jsonl` / `before_tool_call.jsonl` - Tool input checks
+- `combined_audit.jsonl` - All events combined
+- `security_alerts.jsonl` - Security violations
+
+### View Logs
+
+```bash
+# View latest blocks
+tail -5 ~/langchain/guardrails_logs/security_alerts.jsonl
+
+# View tool executions
+tail -10 ~/langchain/guardrails_logs/on_tool_start.jsonl
+```
+
+---
+
+## Metrics
+
+```python
+from enkrypt_guardrails_handler import get_guardrails_metrics
+
+# Get all metrics
+metrics = get_guardrails_metrics()
+
+# Get metrics for specific hook
+llm_metrics = get_guardrails_metrics("on_llm_start")
+print(f"Total calls: {llm_metrics['total_calls']}")
+print(f"Blocked: {llm_metrics['blocked_calls']}")
+print(f"Avg latency: {llm_metrics['avg_latency_ms']:.2f}ms")
+```
+
+---
+
+## Error Handling
+
+```python
+from enkrypt_guardrails_handler import (
+    EnkryptGuardrailsHandler,
+    GuardrailsViolationError,
+    SensitiveToolBlockedError,
+)
+
+handler = EnkryptGuardrailsHandler()
+
+try:
+    response = llm.invoke("malicious prompt")
+except GuardrailsViolationError as e:
+    print(f"Guardrails violation: {e}")
+    print(f"Hook: {e.hook_name}")
+    print(f"Violations: {e.violations}")
+except SensitiveToolBlockedError as e:
+    print(f"Sensitive tool blocked: {e.tool_name}")
+    print(f"Reason: {e.reason}")
+```
+
+---
+
+## Comparison
+
+| Feature | LangChain Module | LangGraph Module |
+|---------|------------------|------------------|
+| Hook Pattern | `BaseCallbackHandler` | `pre_model_hook` / `post_model_hook` |
+| Scope | Any LangChain component | LangGraph agents only |
+| Tool Hooks | `on_tool_start/end` | Tool wrappers |
+| Chain Support | Yes | No (use state hooks) |
+| Retriever Support | Yes | No |
+| Agent Support | Yes | Yes |
+
+**Use LangChain module** for:
+- Standalone LangChain components
+- Chains and pipelines
+- RAG applications
+- Any non-LangGraph agent
+
+**Use LangGraph module** for:
+- LangGraph's `create_react_agent`
+- LangGraph workflows
+
+---
+
+## Testing
+
+```bash
+cd hooks/langchain  # or hooks/langgraph
+pip install pytest pytest-asyncio
+
+# Run tests
+pytest tests/ -v
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CrewAI Integration" icon="users" href="/clients/other-clients#crewai">
+    Protect multi-agent CrewAI systems
+  </Card>
+  <Card title="Configure Policies" icon="shield-check" href="/features/guardrails">
+    Create custom guardrail policies
+  </Card>
+  <Card title="View Metrics" icon="chart-line" href="/observability/metrics">
+    Monitor guardrails performance
+  </Card>
+  <Card title="Audit Logs" icon="list-check" href="/observability/logging">
+    Review security events
+  </Card>
+</CardGroup>

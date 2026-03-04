@@ -1,0 +1,798 @@
+---
+title: 'Configuration Endpoints'
+description: 'REST API endpoints for managing MCP configurations and servers'
+---
+
+## Overview
+
+Configuration endpoints allow you to create, retrieve, update, and delete MCP configurations and their associated servers. Each configuration can contain multiple MCP server definitions with their commands, arguments, environment variables, and guardrail policies.
+
+## List All Configurations
+
+Retrieve a list of all MCP configurations.
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8001/api/v1/configs" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "http://localhost:8001/api/v1/configs",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+configs = response.json()
+```
+
+```javascript JavaScript
+const response = await fetch('http://localhost:8001/api/v1/configs', {
+  headers: { 'Authorization': `Bearer ${adminKey}` }
+});
+const configs = await response.json();
+```
+</CodeGroup>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Configurations retrieved successfully",
+  "data": [
+    {
+      "mcp_config_id": "550e8400-e29b-41d4-a716-446655440000",
+      "mcp_config_name": "development-config",
+      "servers": 3,
+      "used_by_projects": [
+        {
+          "project_id": "660e8400-e29b-41d4-a716-446655440000",
+          "project_name": "dev-project"
+        }
+      ]
+    }
+  ],
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+<ResponseField name="data" type="array">
+  <Expandable title="Configuration Object">
+    <ResponseField name="mcp_config_id" type="string" required>
+      Unique identifier for the configuration
+    </ResponseField>
+    <ResponseField name="mcp_config_name" type="string" required>
+      Human-readable name of the configuration
+    </ResponseField>
+    <ResponseField name="servers" type="integer" required>
+      Number of servers in this configuration
+    </ResponseField>
+    <ResponseField name="used_by_projects" type="array">
+      List of projects using this configuration
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## Create Configuration
+
+Create a new MCP configuration.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/configs" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"config_name": "production-config"}'
+```
+
+```python Python
+response = requests.post(
+    "http://localhost:8001/api/v1/configs",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"config_name": "production-config"}
+)
+result = response.json()
+```
+</CodeGroup>
+
+<ParamField body="config_name" type="string" required>
+  Name for the new configuration
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Configuration created successfully",
+  "data": {
+    "config_id": "550e8400-e29b-41d4-a716-446655440000",
+    "config_name": "production-config"
+  },
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Get Configuration
+
+Retrieve details of a specific configuration.
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8001/api/v1/configs/{config_identifier}" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.get(
+    f"http://localhost:8001/api/v1/configs/{config_id}",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+config = response.json()
+```
+</CodeGroup>
+
+<ParamField path="config_identifier" type="string" required>
+  Configuration ID or name
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Configuration retrieved successfully",
+  "data": {
+    "mcp_config_id": "550e8400-e29b-41d4-a716-446655440000",
+    "mcp_config_name": "production-config",
+    "mcp_config": [
+      {
+        "server_name": "github",
+        "description": "GitHub MCP Server",
+        "config": {
+          "command": "npx",
+          "args": ["-y", "@modelcontextprotocol/server-github"]
+        },
+        "enable_tool_guardrails": true,
+        "input_guardrails_policy": {
+          "enabled": false
+        },
+        "output_guardrails_policy": {
+          "enabled": false
+        }
+      }
+    ]
+  },
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Update Configuration Name
+
+Rename an existing configuration.
+
+<CodeGroup>
+```bash cURL
+curl -X PUT "http://localhost:8001/api/v1/configs/{config_identifier}/rename" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"new_name": "prod-config-v2"}'
+```
+
+```python Python
+response = requests.put(
+    f"http://localhost:8001/api/v1/configs/{config_id}/rename",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"new_name": "prod-config-v2"}
+)
+```
+</CodeGroup>
+
+<ParamField path="config_identifier" type="string" required>
+  Configuration ID or name
+</ParamField>
+
+<ParamField body="new_name" type="string" required>
+  New name for the configuration
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Configuration renamed successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Delete Configuration
+
+Delete a configuration (must not be in use by any projects).
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE "http://localhost:8001/api/v1/configs/{config_identifier}" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.delete(
+    f"http://localhost:8001/api/v1/configs/{config_id}",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+```
+</CodeGroup>
+
+<ParamField path="config_identifier" type="string" required>
+  Configuration ID or name
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Configuration deleted successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Copy Configuration
+
+Create a copy of an existing configuration.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/configs/copy" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source_config": "production-config",
+    "target_config": "staging-config"
+  }'
+```
+
+```python Python
+response = requests.post(
+    "http://localhost:8001/api/v1/configs/copy",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={
+        "source_config": "production-config",
+        "target_config": "staging-config"
+    }
+)
+```
+</CodeGroup>
+
+<ParamField body="source_config" type="string" required>
+  Source configuration ID or name
+</ParamField>
+
+<ParamField body="target_config" type="string" required>
+  Name for the new configuration
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Configuration copied successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## List Servers in Configuration
+
+Get all servers configured in a specific configuration.
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8001/api/v1/configs/{config_identifier}/servers" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.get(
+    f"http://localhost:8001/api/v1/configs/{config_id}/servers",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+servers = response.json()
+```
+</CodeGroup>
+
+<ParamField path="config_identifier" type="string" required>
+  Configuration ID or name
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Servers retrieved successfully",
+  "data": [
+    {
+      "server_name": "github",
+      "description": "GitHub MCP Server",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {},
+      "enable_tool_guardrails": true
+    },
+    {
+      "server_name": "filesystem",
+      "description": "Filesystem MCP Server",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"],
+      "env": {},
+      "enable_tool_guardrails": true
+    }
+  ],
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Add Server to Configuration
+
+Add a new MCP server to a configuration.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/configs/{config_identifier}/servers" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "server_name": "github",
+    "server_command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "env": {
+      "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx"
+    },
+    "description": "GitHub MCP Server",
+    "input_guardrails_policy": {
+      "enabled": true,
+      "policy_name": "GitHub Input Policy",
+      "block": ["policy_violation", "injection_attack"]
+    },
+    "output_guardrails_policy": {
+      "enabled": true,
+      "policy_name": "GitHub Output Policy",
+      "block": ["policy_violation"]
+    }
+  }'
+```
+
+```python Python
+response = requests.post(
+    f"http://localhost:8001/api/v1/configs/{config_id}/servers",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={
+        "server_name": "github",
+        "server_command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env": {"GITHUB_TOKEN": "ghp_xxxxxxxxxxxx"},
+        "description": "GitHub MCP Server",
+        "input_guardrails_policy": {
+            "enabled": True,
+            "policy_name": "GitHub Input Policy",
+            "block": ["policy_violation", "injection_attack"]
+        }
+    }
+)
+```
+</CodeGroup>
+
+<ParamField path="config_identifier" type="string" required>
+  Configuration ID or name
+</ParamField>
+
+<ParamField body="server_name" type="string" required>
+  Unique name for the server within this configuration
+</ParamField>
+
+<ParamField body="server_command" type="string" required>
+  Command to execute the MCP server (e.g., "npx", "python", "node")
+</ParamField>
+
+<ParamField body="args" type="array">
+  Command-line arguments for the server
+</ParamField>
+
+<ParamField body="env" type="object">
+  Environment variables to pass to the server
+</ParamField>
+
+<ParamField body="tools" type="object">
+  Tool-specific configuration overrides
+</ParamField>
+
+<ParamField body="description" type="string">
+  Human-readable description of the server
+</ParamField>
+
+<ParamField body="input_guardrails_policy" type="object">
+  Input guardrail policy configuration
+  <Expandable title="Policy Fields">
+    <ParamField body="enabled" type="boolean">
+      Enable input guardrails for this server
+    </ParamField>
+    <ParamField body="policy_name" type="string">
+      Name of the guardrail policy
+    </ParamField>
+    <ParamField body="additional_config" type="object">
+      Additional guardrail settings (e.g., pii_redaction)
+    </ParamField>
+    <ParamField body="block" type="array">
+      List of violation types to block (policy_violation, injection_attack, etc.)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="output_guardrails_policy" type="object">
+  Output guardrail policy configuration (same structure as input)
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Server added successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Update Server in Configuration
+
+Update an existing server's configuration.
+
+<CodeGroup>
+```bash cURL
+curl -X PUT "http://localhost:8001/api/v1/configs/{config_identifier}/servers/{server_name}" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "server_command": "python3",
+    "args": ["/updated/path/to/server.py"],
+    "description": "Updated server description"
+  }'
+```
+
+```python Python
+response = requests.put(
+    f"http://localhost:8001/api/v1/configs/{config_id}/servers/{server_name}",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={
+        "server_command": "python3",
+        "args": ["/updated/path/to/server.py"],
+        "description": "Updated server description"
+    }
+)
+```
+</CodeGroup>
+
+<ParamField path="config_identifier" type="string" required>
+  Configuration ID or name
+</ParamField>
+
+<ParamField path="server_name" type="string" required>
+  Name of the server to update
+</ParamField>
+
+<ParamField body="server_command" type="string">
+  Updated command (optional)
+</ParamField>
+
+<ParamField body="args" type="array">
+  Updated arguments (optional)
+</ParamField>
+
+<ParamField body="env" type="object">
+  Updated environment variables (optional)
+</ParamField>
+
+<ParamField body="tools" type="object">
+  Updated tool configuration (optional)
+</ParamField>
+
+<ParamField body="description" type="string">
+  Updated description (optional)
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Server updated successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Remove Server from Configuration
+
+Remove a specific server from a configuration.
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE "http://localhost:8001/api/v1/configs/{config_identifier}/servers/{server_name}" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.delete(
+    f"http://localhost:8001/api/v1/configs/{config_id}/servers/{server_name}",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+```
+</CodeGroup>
+
+<ParamField path="config_identifier" type="string" required>
+  Configuration ID or name
+</ParamField>
+
+<ParamField path="server_name" type="string" required>
+  Name of the server to remove
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Server removed successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Update Server Guardrails
+
+Update both input and output guardrail policies for a server.
+
+<CodeGroup>
+```bash cURL
+curl -X PUT "http://localhost:8001/api/v1/configs/{config_identifier}/servers/{server_name}/guardrails" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input_policy": {
+      "enabled": true,
+      "policy_name": "Strict Input Policy",
+      "additional_config": {
+        "pii_redaction": true
+      },
+      "block": ["policy_violation", "injection_attack", "nsfw"]
+    },
+    "output_policy": {
+      "enabled": true,
+      "policy_name": "Strict Output Policy",
+      "additional_config": {
+        "relevancy": true,
+        "hallucination": true
+      },
+      "block": ["policy_violation", "nsfw"]
+    }
+  }'
+```
+</CodeGroup>
+
+<ParamField path="config_identifier" type="string" required>
+  Configuration ID or name
+</ParamField>
+
+<ParamField path="server_name" type="string" required>
+  Name of the server
+</ParamField>
+
+<ParamField body="input_policy" type="object">
+  Input guardrail policy configuration
+</ParamField>
+
+<ParamField body="output_policy" type="object">
+  Output guardrail policy configuration
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Guardrails updated successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Validate Configuration
+
+Validate a configuration structure and server definitions.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/configs/{config_identifier}/validate" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.post(
+    f"http://localhost:8001/api/v1/configs/{config_id}/validate",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+```
+</CodeGroup>
+
+<ParamField path="config_identifier" type="string" required>
+  Configuration ID or name
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Configuration is valid",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Export Configuration
+
+Export a configuration to a JSON file.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/configs/{config_identifier}/export" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"output_file": "/path/to/export.json"}'
+```
+
+```python Python
+response = requests.post(
+    f"http://localhost:8001/api/v1/configs/{config_id}/export",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"output_file": "/path/to/export.json"}
+)
+```
+</CodeGroup>
+
+<ParamField path="config_identifier" type="string" required>
+  Configuration ID or name
+</ParamField>
+
+<ParamField body="output_file" type="string" required>
+  Path where the configuration will be exported
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Configuration exported successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Import Configuration
+
+Import a configuration from a JSON file.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/configs/import" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input_file": "/path/to/import.json",
+    "config_name": "imported-config"
+  }'
+```
+
+```python Python
+response = requests.post(
+    "http://localhost:8001/api/v1/configs/import",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={
+        "input_file": "/path/to/import.json",
+        "config_name": "imported-config"
+    }
+)
+```
+</CodeGroup>
+
+<ParamField body="input_file" type="string" required>
+  Path to the configuration file to import
+</ParamField>
+
+<ParamField body="config_name" type="string" required>
+  Name for the imported configuration
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Configuration imported successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Search Configurations
+
+Search configurations by name or content.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/configs/search" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"search_term": "production"}'
+```
+
+```python Python
+response = requests.post(
+    "http://localhost:8001/api/v1/configs/search",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"search_term": "production"}
+)
+results = response.json()
+```
+</CodeGroup>
+
+<ParamField body="search_term" type="string" required>
+  Search query (matches against config names and server names)
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "Search completed successfully",
+  "data": [
+    {
+      "mcp_config_id": "550e8400-e29b-41d4-a716-446655440000",
+      "mcp_config_name": "production-config",
+      "servers": 5
+    }
+  ],
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Project Endpoints" icon="folder" href="/api/projects">
+    Manage projects and assign configurations
+  </Card>
+  <Card title="User Endpoints" icon="users" href="/api/users">
+    Create and manage users
+  </Card>
+  <Card title="API Key Endpoints" icon="key" href="/api/api-keys">
+    Generate and rotate API keys
+  </Card>
+  <Card title="System Endpoints" icon="server" href="/api/system">
+    System backup and restore
+  </Card>
+</CardGroup>

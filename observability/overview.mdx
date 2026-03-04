@@ -1,0 +1,532 @@
+---
+title: 'Observability Overview'
+description: 'Comprehensive telemetry architecture and monitoring capabilities of the Secure MCP Gateway'
+icon: 'chart-line'
+---
+
+## Introduction
+
+The Secure MCP Gateway provides enterprise-grade observability through a plugin-based telemetry system. The architecture supports structured logging, distributed tracing, and metrics collection to give you complete visibility into gateway operations, security events, and performance characteristics.
+
+## Telemetry Architecture
+
+### Plugin-Based System
+
+The gateway uses a flexible plugin architecture for telemetry providers:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Secure MCP Gateway Application                          │
+├─────────────────────────────────────────────────────────┤
+│ Telemetry Config Manager (Singleton)                    │
+│  ├── Provider Registry                                   │
+│  ├── Logger/Tracer/Meter Factory                        │
+│  └── Metric Accessors                                    │
+└──────────────────┬──────────────────────────────────────┘
+                   │
+         ┌─────────┴──────────┐
+         │                    │
+    ┌────▼────────┐    ┌─────▼──────────┐
+    │ OpenTelemetry│    │ Stdout Provider│
+    │  Provider    │    │   (Simple)     │
+    └────┬────────┘    └────────────────┘
+         │
+    ┌────▼────────────────────────────────┐
+    │ OTLP Exporter (gRPC/HTTP)           │
+    └────┬────────────────────────────────┘
+         │
+    ┌────▼────────────────────────────────┐
+    │ OpenTelemetry Collector             │
+    │  ├── Receives: Logs, Traces, Metrics│
+    │  ├── Processes: Batch, Filter       │
+    │  └── Exports: Multiple backends      │
+    └────┬────────────────────────────────┘
+         │
+    ┌────┴───────────┬──────────┬─────────┐
+    ▼                ▼          ▼         ▼
+┌───────┐      ┌────────┐  ┌──────┐  ┌────────┐
+│ Jaeger│      │ Loki   │  │Prom- │  │Grafana │
+│(Traces)│      │(Logs)  │  │etheus│  │(Dashboards)│
+└───────┘      └────────┘  │(Metrics)│└────────┘
+                            └──────┘
+```
+
+### Key Components
+
+#### 1. Telemetry Provider Interface
+
+All providers implement the base `TelemetryProvider` interface:
+
+```python
+class TelemetryProvider(ABC):
+    @abstractmethod
+    def initialize(self, config: dict[str, Any]) -> TelemetryResult:
+        """Initialize the telemetry provider"""
+        pass
+
+    @abstractmethod
+    def create_logger(self, name: str) -> Any:
+        """Create a logger instance"""
+        pass
+
+    @abstractmethod
+    def create_tracer(self, name: str) -> Any:
+        """Create a tracer instance"""
+        pass
+
+    def create_meter(self, name: str) -> Any:
+        """Create a meter instance (optional)"""
+        return None
+```
+
+**Location:** `src/secure_mcp_gateway/plugins/telemetry/base.py`
+
+#### 2. Telemetry Config Manager
+
+Centralized singleton that manages the telemetry lifecycle:
+
+```python
+from secure_mcp_gateway.plugins.telemetry import (
+    get_telemetry_config_manager,
+    initialize_telemetry_system
+)
+
+# Initialize telemetry
+manager = initialize_telemetry_system(config)
+
+# Get logger/tracer/meter
+logger = manager.get_logger()
+tracer = manager.get_tracer()
+meter = manager.get_meter()
+```
+
+**Location:** `src/secure_mcp_gateway/plugins/telemetry/config_manager.py`
+
+#### 3. Lazy Logger Pattern
+
+To avoid circular imports during initialization, the gateway uses a lazy logger:
+
+```python
+from secure_mcp_gateway.utils import logger
+
+# Logger is lazily initialized on first use
+logger.info("Gateway started", extra={"version": "2.1.2"})
+```
+
+**Location:** `src/secure_mcp_gateway/utils.py:63-92`
+
+## Configuration
+
+### Telemetry Config Structure
+
+Telemetry is configured in `enkrypt_mcp_config.json`:
+
+```json
+{
+  "common_mcp_gateway_config": {
+    "enkrypt_log_level": "INFO",
+    "...": "..."
+  },
+  "plugins": {
+    "telemetry": {
+      "provider": "opentelemetry",
+      "config": {
+        "enabled": true,
+        "url": "http://localhost:4317",
+        "insecure": true,
+        "service_name": "secure-mcp-gateway",
+        "job_name": "enkryptai"
+      }
+    }
+  }
+}
+```
+
+### Configuration Options
+
+<ParamField path="plugins.telemetry.provider" type="string" default="opentelemetry">
+  Telemetry provider to use. Available: `opentelemetry`, `stdout`
+</ParamField>
+
+<ParamField path="plugins.telemetry.config.enabled" type="boolean" default="true">
+  Enable or disable telemetry. When disabled, uses no-op logger/tracer.
+</ParamField>
+
+<ParamField path="plugins.telemetry.config.url" type="string" default="http://localhost:4317">
+  OTLP endpoint URL for the OpenTelemetry Collector (gRPC or HTTP)
+</ParamField>
+
+<ParamField path="plugins.telemetry.config.insecure" type="boolean" default="true">
+  Use insecure connection (no TLS). Set to `false` for production with TLS.
+</ParamField>
+
+<ParamField path="plugins.telemetry.config.service_name" type="string" default="secure-mcp-gateway">
+  Service name for resource attributes in telemetry data
+</ParamField>
+
+<ParamField path="plugins.telemetry.config.job_name" type="string" default="enkryptai">
+  Job name for metrics scraping and resource attributes
+</ParamField>
+
+<ParamField path="enkrypt_log_level" type="string" default="INFO">
+  Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
+</ParamField>
+
+## Available Providers
+
+### OpenTelemetry Provider
+
+Production-ready provider with full observability stack:
+
+- **Structured Logging:** JSON logs with context via `structlog`
+- **Distributed Tracing:** Context propagation across service boundaries
+- **Metrics:** Prometheus-compatible metrics export
+- **Export:** OTLP gRPC/HTTP to OpenTelemetry Collector
+- **Integration:** Works with Jaeger, Loki, Prometheus, Grafana
+
+**Configuration:**
+
+```json
+{
+  "plugins": {
+    "telemetry": {
+      "provider": "opentelemetry",
+      "config": {
+        "enabled": true,
+        "url": "http://localhost:4317",
+        "insecure": true
+      }
+    }
+  }
+}
+```
+
+See [OpenTelemetry Setup](/observability/opentelemetry) for detailed configuration.
+
+### Stdout Provider
+
+Simple provider for debugging and development:
+
+- Logs to stdout
+- No tracing or metrics
+- Minimal overhead
+
+**Configuration:**
+
+```json
+{
+  "plugins": {
+    "telemetry": {
+      "provider": "stdout",
+      "config": {
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+## Observability Features
+
+### 1. Structured Logging
+
+All logs include contextual information:
+
+```python
+logger.info(
+    "Tool execution completed",
+    extra={
+        "custom_id": "abc123_1234567890",
+        "server_name": "github_server",
+        "tool_name": "create_issue",
+        "project_id": "proj-123",
+        "user_id": "user-456",
+        "duration_ms": 250
+    }
+)
+```
+
+See [Logging](/observability/logging) for log formats and aggregation.
+
+### 2. Distributed Tracing
+
+Traces span across gateway operations:
+
+```python
+with tracer.start_as_current_span("tool_execution") as span:
+    span.set_attribute("server_name", server_name)
+    span.set_attribute("tool_name", tool_name)
+    # ... operation
+```
+
+See [OpenTelemetry Setup](/observability/opentelemetry) for trace configuration.
+
+### 3. Metrics Collection
+
+Comprehensive metrics for monitoring:
+
+**Operation Metrics:**
+- `enkrypt_tool_calls_total` - Total tool invocations
+- `enkrypt_tool_call_duration_seconds` - Tool execution latency (histogram)
+- `enkrypt_tool_call_success_total` - Successful tool calls
+- `enkrypt_tool_call_failure_total` - Failed tool calls
+
+**Cache Metrics:**
+- `enkrypt_cache_hits_total` - Cache hits
+- `enkrypt_cache_misses_total` - Cache misses
+
+**Security Metrics:**
+- `enkrypt_guardrail_violations_total` - Total guardrail violations
+- `enkrypt_input_guardrail_violations_total` - Input violations
+- `enkrypt_output_guardrail_violations_total` - Output violations
+- `enkrypt_pii_redactions_total` - PII redaction events
+- `enkrypt_tool_call_blocked_total` - Blocked tool calls
+
+**Authentication Metrics:**
+- `enkrypt_auth_success_total` - Successful authentications
+- `enkrypt_auth_failure_total` - Failed authentications
+- `enkrypt_active_sessions` - Current active sessions (gauge)
+- `enkrypt_active_users` - Current active users (gauge)
+
+See [Metrics](/observability/metrics) for complete list and dashboards.
+
+## Observability Stack Deployment
+
+The gateway includes a complete observability stack via Docker Compose:
+
+```bash
+cd infra/
+docker-compose up -d
+```
+
+**Services Started:**
+
+| Service | Port | Purpose |
+|---------|------|----------|
+| OpenTelemetry Collector | 4317 (gRPC), 4318 (HTTP) | Receives telemetry data |
+| Jaeger UI | 16686 | Trace visualization |
+| Loki | 3100 | Log aggregation |
+| Prometheus | 9090 | Metrics storage and querying |
+| Grafana | 3000 | Unified dashboards |
+
+**Access Points:**
+- Grafana: http://localhost:3000 (anonymous admin access)
+- Jaeger: http://localhost:16686
+- Prometheus: http://localhost:9090
+
+## Telemetry Lifecycle
+
+### 1. Initialization
+
+Telemetry is initialized during gateway startup:
+
+```python
+# 1. Load configuration
+common_config = get_common_config()
+
+# 2. Initialize telemetry system
+from secure_mcp_gateway.plugins.telemetry import initialize_telemetry_system
+telemetry_manager = initialize_telemetry_system(common_config)
+
+# 3. Get logger/tracer
+logger = telemetry_manager.get_logger()
+tracer = telemetry_manager.get_tracer()
+```
+
+**Location:** `src/secure_mcp_gateway/gateway.py:796`
+
+### 2. Connectivity Check
+
+Before enabling telemetry, the provider checks endpoint reachability:
+
+```python
+def _check_telemetry_enabled(self, config: dict[str, Any]) -> bool:
+    """Check if telemetry is enabled and endpoint is reachable."""
+    endpoint = config.get("url", "http://localhost:4317")
+    
+    # For gRPC endpoints (port 4317), use socket connection test
+    if parsed_url.port == 4317:
+        with socket.create_connection((hostname, port), timeout=2):
+            return True
+    
+    # If unreachable, disable telemetry gracefully
+    return False
+```
+
+**Location:** `src/secure_mcp_gateway/plugins/telemetry/opentelemetry_provider.py:152`
+
+### 3. No-Op Fallback
+
+If telemetry is disabled or unreachable, the provider uses no-op implementations:
+
+```python
+class NoOpLogger:
+    def info(self, msg, *args, **kwargs):
+        pass
+    def debug(self, msg, *args, **kwargs):
+        pass
+    # ...
+
+class NoOpTracer:
+    def start_as_current_span(self, name, **kwargs):
+        return NoOpSpan()  # Context manager that does nothing
+```
+
+This ensures the gateway runs normally even without telemetry infrastructure.
+
+**Location:** `src/secure_mcp_gateway/plugins/telemetry/opentelemetry_provider.py:486`
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Structured Logging" icon="list">
+    Always include contextual information in logs:
+
+    ```python
+    logger.info(
+        "Operation completed",
+        extra={
+            "custom_id": custom_id,
+            "server_name": server_name,
+            "duration_ms": duration
+        }
+    )
+    ```
+
+    This enables powerful filtering and analysis in Loki/Grafana.
+  </Accordion>
+
+  <Accordion title="Set Span Attributes" icon="network-wired">
+    Add meaningful attributes to traces:
+
+    ```python
+    with tracer.start_as_current_span("operation") as span:
+        span.set_attribute("server_name", server_name)
+        span.set_attribute("tool_name", tool_name)
+        span.set_attribute("user_id", user_id)
+    ```
+
+    This makes traces searchable and provides context.
+  </Accordion>
+
+  <Accordion title="Use Appropriate Log Levels" icon="layer-group">
+    - `DEBUG`: Detailed diagnostic information
+    - `INFO`: General operational events
+    - `WARNING`: Unexpected but handled situations
+    - `ERROR`: Error conditions that need attention
+    - `CRITICAL`: Severe errors requiring immediate action
+  </Accordion>
+
+  <Accordion title="Monitor Key Metrics" icon="chart-area">
+    Set up alerts for:
+    - High error rates (`tool_call_failure_total`)
+    - Slow operations (`tool_call_duration_seconds`)
+    - Security events (`guardrail_violations_total`)
+    - Resource usage (`active_sessions`, `cache_misses_total`)
+  </Accordion>
+
+  <Accordion title="Use TLS in Production" icon="lock">
+    Configure secure connections:
+
+    ```json
+    {
+      "plugins": {
+        "telemetry": {
+          "config": {
+            "url": "https://otel-collector.example.com:4318",
+            "insecure": false
+          }
+        }
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Performance Considerations
+
+### Minimal Overhead
+
+The OpenTelemetry provider is designed for production:
+
+- **Batch Processing:** Logs, traces, and metrics are batched before export
+- **Async Export:** Telemetry export doesn't block gateway operations
+- **Configurable Buffer:** 1s timeout, 1024 batch size (configurable)
+- **Periodic Metrics:** Metrics exported every 5 seconds
+
+### Resource Usage
+
+Typical resource consumption:
+
+- **CPU:** < 5% overhead for telemetry operations
+- **Memory:** ~50-100MB for OpenTelemetry SDK and buffers
+- **Network:** Depends on log volume and metric cardinality
+
+### Optimization Tips
+
+1. **Adjust Log Level:** Use `INFO` or `WARNING` in production, `DEBUG` only when troubleshooting
+2. **Sample Traces:** For high-volume deployments, use trace sampling in the collector
+3. **Metric Cardinality:** Avoid high-cardinality labels (e.g., user IDs in metric labels)
+4. **Buffer Tuning:** Adjust batch size and timeout in collector config
+
+## Troubleshooting
+
+### Telemetry Not Working
+
+**Check connectivity:**
+```bash
+# Test gRPC endpoint
+grpcurl -plaintext localhost:4317 list
+
+# Test HTTP endpoint
+curl http://localhost:4318/v1/traces
+```
+
+**Check logs:**
+```bash
+# Gateway logs (stdout/stderr)
+docker logs secure-mcp-gateway
+
+# Collector logs
+docker logs otel-collector
+```
+
+**Verify configuration:**
+```bash
+cat ~/.enkrypt/enkrypt_mcp_config.json | jq '.plugins.telemetry'
+```
+
+### Logs Not Appearing in Loki
+
+1. Check Loki is running: `curl http://localhost:3100/ready`
+2. Verify collector exports to Loki: Check `exporters.otlphttp/loki` in collector config
+3. Check Grafana datasource: Navigate to Grafana → Connections → Loki
+
+### Metrics Not in Prometheus
+
+1. Check Prometheus scrape config: `http://localhost:9090/config`
+2. Verify collector metrics endpoint: `curl http://localhost:8889/metrics`
+3. Check scrape targets: `http://localhost:9090/targets`
+
+### Traces Not in Jaeger
+
+1. Check Jaeger is running: `curl http://localhost:16686`
+2. Verify collector exports to Jaeger: Check `exporters.otlp` in collector config
+3. Check Jaeger receives data: Navigate to Jaeger UI → Search
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="OpenTelemetry Setup" icon="signal-stream" href="/observability/opentelemetry">
+    Configure OTLP export, distributed tracing, and collector setup
+  </Card>
+  <Card title="Metrics" icon="chart-column" href="/observability/metrics">
+    Explore Prometheus metrics, Grafana dashboards, and alerting
+  </Card>
+  <Card title="Logging" icon="file-lines" href="/observability/logging">
+    Learn about log formats, levels, and aggregation with Loki
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Explore the REST API for programmatic monitoring
+  </Card>
+</CardGroup>

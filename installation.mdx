@@ -1,0 +1,862 @@
+---
+title: "Installation"
+description: "Comprehensive installation guide for Secure MCP Gateway covering pip, Docker, and from-source installation methods."
+---
+
+## Overview
+
+Secure MCP Gateway can be installed in three ways:
+
+1. **pip installation** (recommended) - Fastest method using PyPI
+2. **Docker installation** - Containerized deployment with full observability stack
+3. **From source** - Clone the repository and install manually
+
+Choose the method that best fits your environment and use case.
+
+## Prerequisites
+
+All installation methods require:
+
+<AccordionGroup>
+  <Accordion title="Python requirements">
+    - **Python 3.8 or higher** (3.11+ recommended)
+    - **pip 25.0.1 or higher**
+    - **uv 0.7.9 or higher** (for package management)
+    
+    Verify installations:
+    ```bash
+    python --version
+    # Python 3.13.3
+    
+    pip --version
+    # pip 25.0.1
+    
+    uv --version
+    # uv 0.7.9 (13a86a23b 2025-05-30)
+    ```
+    
+    If `uv` is not installed:
+    ```bash
+    pip install uv
+    ```
+  </Accordion>
+  
+  <Accordion title="MCP client">
+    You'll need at least one MCP client:
+    
+    - **Claude Desktop** - Download from [claude.ai/download](https://claude.ai/download)
+    - **Cursor** - Download from [cursor.sh](https://cursor.sh)
+    - **Claude Code** - Install with `npm install -g @anthropic-ai/claude-code`
+    - **Any MCP-compatible client** - See [MCP documentation](https://modelcontextprotocol.io)
+  </Accordion>
+  
+  <Accordion title="Optional: Docker (for Docker installation)">
+    For Docker installation:
+    - **Docker Desktop** or **Docker Engine** - [Install Docker](https://docs.docker.com/get-docker/)
+    - **Docker Compose** - Typically included with Docker Desktop
+    
+    Verify:
+    ```bash
+    docker --version
+    docker-compose --version
+    ```
+  </Accordion>
+  
+  <Accordion title="Optional: Cache server">
+    For production deployments with external caching:
+    - **Redis 4.0+** or **KeyDB** (Redis-compatible)
+    
+    The gateway includes both local in-memory caching and external cache support.
+  </Accordion>
+</AccordionGroup>
+
+## Method 1: pip installation
+
+The fastest way to install Secure MCP Gateway.
+
+<Steps>
+  <Step title="Create a virtual environment">
+    ```bash
+    python -m venv .secure-mcp-gateway-venv
+    
+    # On macOS/Linux
+    source .secure-mcp-gateway-venv/bin/activate
+    
+    # On Windows (Command Prompt)
+    .secure-mcp-gateway-venv\Scripts\activate
+    
+    # On Windows (PowerShell)
+    .secure-mcp-gateway-venv\Scripts\Activate.ps1
+    ```
+    
+    <Note>
+      Your prompt should now show `(secure-mcp-gateway-venv)` indicating the virtual environment is active.
+    </Note>
+  </Step>
+  
+  <Step title="Install from PyPI">
+    ```bash
+    pip install secure-mcp-gateway
+    ```
+    
+    This installs:
+    - Secure MCP Gateway (version 2.1.7)
+    - MCP SDK with CLI (`mcp[cli]>=1.10.1`)
+    - All required dependencies (FastMCP, Flask, Redis client, etc.)
+    
+    Package info: [pypi.org/project/secure-mcp-gateway](https://pypi.org/project/secure-mcp-gateway/)
+  </Step>
+  
+  <Step title="Verify installation">
+    ```bash
+    secure-mcp-gateway --version
+    # 2.1.7
+    
+    mcp version
+    # MCP version 1.9.2
+    ```
+  </Step>
+  
+  <Step title="Generate configuration">
+    ```bash
+    secure-mcp-gateway generate-config
+    ```
+    
+    This creates `enkrypt_mcp_config.json` at:
+    - **macOS/Linux:** `~/.enkrypt/enkrypt_mcp_config.json`
+    - **Windows:** `%USERPROFILE%\.enkrypt\enkrypt_mcp_config.json`
+    
+    The config includes:
+    - Default project, user, and API key
+    - Echo test server configured
+    - Common gateway settings (log level, cache, telemetry)
+  </Step>
+  
+  <Step title="Install for your MCP client">
+    <CodeGroup>
+    ```bash Claude Desktop
+    secure-mcp-gateway install --client claude-desktop
+    
+    # Restart Claude Desktop after installation
+    ```
+    
+    ```bash Cursor
+    secure-mcp-gateway install --client cursor
+    
+    # Usually no restart needed, but restart if loading hangs
+    ```
+    
+    ```bash Claude Code
+    secure-mcp-gateway install --client claude-code
+    
+    # Verify: claude mcp list
+    ```
+    </CodeGroup>
+    
+    <Warning>
+      Always restart your MCP client after installation for changes to take effect.
+    </Warning>
+  </Step>
+</Steps>
+
+### Example output
+
+<CodeGroup>
+```bash generate-config output
+$ secure-mcp-gateway generate-config
+
+Initializing Enkrypt Secure MCP Gateway
+Initializing Enkrypt Secure MCP Gateway Common Utilities Module
+Initializing Enkrypt Secure MCP Gateway Module
+--------------------------------
+SYSTEM INFO:
+Using Python interpreter: /Users/user/secure-mcp-gateway-venv/bin/python
+Python version: 3.13.3
+Current working directory: /Users/user/projects
+PYTHONPATH: Not set
+--------------------------------
+Installing dependencies...
+All dependencies installed successfully.
+--------------------------------
+ENKRYPT_GATEWAY_KEY: ****NULL
+enkrypt_log_level: info
+enkrypt_base_url: https://api.enkryptai.com
+enkrypt_use_remote_mcp_config: False
+enkrypt_mcp_use_external_cache: False
+--------------------------------
+External Cache is not enabled. Using local cache only.
+Generated default config at /Users/user/.enkrypt/enkrypt_mcp_config.json
+```
+
+```bash install output
+$ secure-mcp-gateway install --client claude-desktop
+
+Initializing Enkrypt Secure MCP Gateway CLI Module
+CONFIG_PATH: /Users/user/.enkrypt/enkrypt_mcp_config.json
+GATEWAY_PY_PATH: /Users/user/secure-mcp-gateway-venv/lib/python3.13/site-packages/secure_mcp_gateway/gateway.py
+Successfully installed gateway for claude-desktop
+Please restart Claude Desktop to use the gateway.
+```
+</CodeGroup>
+
+### Configuration files created
+
+<Accordion title="enkrypt_mcp_config.json (macOS example)">
+```json
+{
+  "common_mcp_gateway_config": {
+    "enkrypt_log_level": "INFO",
+    "enkrypt_base_url": "https://api.enkryptai.com",
+    "enkrypt_api_key": "YOUR_ENKRYPT_API_KEY",
+    "enkrypt_use_remote_mcp_config": false,
+    "enkrypt_mcp_use_external_cache": false,
+    "enkrypt_cache_host": "localhost",
+    "enkrypt_cache_port": 6379,
+    "enkrypt_tool_cache_expiration": 4,
+    "enkrypt_gateway_cache_expiration": 24,
+    "enkrypt_async_input_guardrails_enabled": false,
+    "enkrypt_async_output_guardrails_enabled": false,
+    "enkrypt_telemetry": {
+      "enabled": true,
+      "insecure": true,
+      "endpoint": "http://localhost:4317"
+    }
+  },
+  "mcp_configs": {
+    "fcbd4508-1432-4f13-abb9-c495c946f638": {
+      "mcp_config_name": "default_config",
+      "mcp_config": [
+        {
+          "server_name": "echo_server",
+          "description": "Simple Echo Server",
+          "config": {
+            "command": "python",
+            "args": [
+              "/Users/user/secure-mcp-gateway-venv/lib/python3.13/site-packages/secure_mcp_gateway/bad_mcps/echo_mcp.py"
+            ]
+          },
+          "tools": {},
+          "input_guardrails_policy": {
+            "enabled": false,
+            "policy_name": "Sample Airline Guardrail",
+            "additional_config": {
+              "pii_redaction": false
+            },
+            "block": ["policy_violation"]
+          },
+          "output_guardrails_policy": {
+            "enabled": false,
+            "policy_name": "Sample Airline Guardrail",
+            "additional_config": {
+              "relevancy": false,
+              "hallucination": false,
+              "adherence": false
+            },
+            "block": ["policy_violation"]
+          }
+        }
+      ]
+    }
+  },
+  "projects": {
+    "3c09f06c-1f0d-4153-9ac5-366397937641": {
+      "project_name": "default_project",
+      "mcp_config_id": "fcbd4508-1432-4f13-abb9-c495c946f638",
+      "users": ["6469a670-1d64-4da5-b2b3-790de21ac726"],
+      "created_at": "2025-07-16T17:02:00.406877"
+    }
+  },
+  "users": {
+    "6469a670-1d64-4da5-b2b3-790de21ac726": {
+      "email": "default@example.com",
+      "created_at": "2025-07-16T17:02:00.406902"
+    }
+  },
+  "apikeys": {
+    "2W8UupCkazk4SsOcSu_1hAbiOgPdv0g-nN9NtfZyg-rvYGat": {
+      "project_id": "3c09f06c-1f0d-4153-9ac5-366397937641",
+      "user_id": "6469a670-1d64-4da5-b2b3-790de21ac726",
+      "created_at": "2025-07-16T17:02:00.406905"
+    }
+  }
+}
+```
+</Accordion>
+
+<Accordion title="claude_desktop_config.json (macOS example)">
+```json
+{
+  "mcpServers": {
+    "Enkrypt Secure MCP Gateway": {
+      "command": "mcp",
+      "args": [
+        "run",
+        "/Users/user/secure-mcp-gateway-venv/lib/python3.13/site-packages/secure_mcp_gateway/gateway.py"
+      ],
+      "env": {
+        "ENKRYPT_GATEWAY_KEY": "2W8UupCkazk4SsOcSu_1hAbiOgPdv0g-nN9NtfZyg-rvYGat",
+        "ENKRYPT_PROJECT_ID": "3c09f06c-1f0d-4153-9ac5-366397937641",
+        "ENKRYPT_USER_ID": "6469a670-1d64-4da5-b2b3-790de21ac726"
+      }
+    }
+  }
+}
+```
+</Accordion>
+
+## Method 2: Docker installation
+
+Use Docker for containerized deployment with the full observability stack.
+
+<Steps>
+  <Step title="Build the Docker image">
+    ```bash
+    # Clone the repository first
+    git clone https://github.com/enkryptai/secure-mcp-gateway
+    cd secure-mcp-gateway
+    
+    # Build the image
+    docker build -t secure-mcp-gateway .
+    ```
+    
+    The Docker image includes:
+    - Python 3.12 with pip, uv, pipx
+    - Node.js 22.x LTS with npm, npx
+    - Build tools (gcc, g++, make)
+    - Utilities (git, jq, yq, curl, wget)
+    
+    Based on Ubuntu 24.04 LTS for stability.
+  </Step>
+  
+  <Step title="Generate configuration">
+    <CodeGroup>
+    ```bash macOS/Linux
+    docker run --rm \
+      -e HOST_OS=macos \
+      -e HOST_ENKRYPT_HOME=$HOME/.enkrypt \
+      -v ~/.enkrypt/docker:/app/.enkrypt/docker \
+      --entrypoint python \
+      secure-mcp-gateway \
+      -m secure_mcp_gateway.cli generate-config
+    ```
+    
+    ```cmd Windows (CMD)
+    docker run --rm ^
+      -e HOST_OS=windows ^
+      -e HOST_ENKRYPT_HOME=%USERPROFILE%\.enkrypt ^
+      -v %USERPROFILE%\.enkrypt\docker:/app/.enkrypt/docker ^
+      --entrypoint python ^
+      secure-mcp-gateway ^
+      -m secure_mcp_gateway.cli generate-config
+    ```
+    
+    ```powershell Windows (PowerShell)
+    docker run --rm `
+      -e HOST_OS=windows `
+      -e "HOST_ENKRYPT_HOME=$env:USERPROFILE\.enkrypt" `
+      -v "$env:USERPROFILE\.enkrypt\docker:/app/.enkrypt/docker" `
+      --entrypoint python `
+      secure-mcp-gateway `
+      -m secure_mcp_gateway.cli generate-config
+    ```
+    </CodeGroup>
+    
+    <Info>
+      If you have the CLI installed locally, use the shorthand: `secure-mcp-gateway --docker generate-config`
+    </Info>
+    
+    This creates config at:
+    - **macOS/Linux:** `~/.enkrypt/docker/enkrypt_mcp_config.json`
+    - **Windows:** `%USERPROFILE%\.enkrypt\docker\enkrypt_mcp_config.json`
+  </Step>
+  
+  <Step title="Install for Claude Desktop">
+    <CodeGroup>
+    ```bash macOS/Linux
+    docker run --rm -i \
+      -e HOST_OS=macos \
+      -e HOST_ENKRYPT_HOME=$HOME/.enkrypt \
+      -v ~/.enkrypt/docker:/app/.enkrypt/docker \
+      -v ~/Library/Application\ Support/Claude:/app/.claude \
+      --entrypoint python \
+      secure-mcp-gateway \
+      -m secure_mcp_gateway.cli install --client claude-desktop
+    ```
+    
+    ```cmd Windows (CMD)
+    docker run --rm -i ^
+      -e HOST_OS=windows ^
+      -e HOST_ENKRYPT_HOME=%USERPROFILE%\.enkrypt ^
+      -v %USERPROFILE%\.enkrypt\docker:/app/.enkrypt/docker ^
+      -v %APPDATA%\Claude:/app/.claude ^
+      --entrypoint python ^
+      secure-mcp-gateway ^
+      -m secure_mcp_gateway.cli install --client claude-desktop
+    ```
+    
+    ```powershell Windows (PowerShell)
+    docker run --rm -i `
+      -e HOST_OS=windows `
+      -e "HOST_ENKRYPT_HOME=$env:USERPROFILE\.enkrypt" `
+      -v "$env:USERPROFILE\.enkrypt\docker:/app/.enkrypt/docker" `
+      -v "$env:APPDATA\Claude:/app/.claude" `
+      --entrypoint python `
+      secure-mcp-gateway `
+      -m secure_mcp_gateway.cli install --client claude-desktop
+    ```
+    </CodeGroup>
+    
+    <Note>
+      The Docker config includes `MCP_TRANSPORT=stdio` for proper communication with Claude Desktop.
+    </Note>
+  </Step>
+  
+  <Step title="Restart Claude Desktop">
+    Restart Claude Desktop completely to load the gateway.
+  </Step>
+</Steps>
+
+### Docker Compose with observability stack
+
+For production deployments with full monitoring:
+
+```bash
+# In the repository directory
+cd infra
+docker-compose up -d
+```
+
+This starts:
+- **Gateway** - Main service on port 8000
+- **API Server** - REST API on port 8001
+- **OpenTelemetry Collector** - OTLP receiver on port 4317
+- **Prometheus** - Metrics on port 9090
+- **Grafana** - Dashboards on port 3000 (admin/admin)
+- **Jaeger** - Traces on port 16686
+- **Loki** - Log aggregation
+- **Redis/KeyDB** - External cache on port 6379
+
+Access services:
+- Grafana: [http://localhost:3000](http://localhost:3000)
+- Jaeger: [http://localhost:16686](http://localhost:16686)
+- Prometheus: [http://localhost:9090](http://localhost:9090)
+
+### Claude Desktop config for Docker
+
+<CodeGroup>
+```json macOS
+{
+  "mcpServers": {
+    "Enkrypt Secure MCP Gateway": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "-e",
+        "MCP_TRANSPORT=stdio",
+        "-v",
+        "/Users/user/.enkrypt/docker:/app/.enkrypt/docker",
+        "secure-mcp-gateway"
+      ],
+      "env": {
+        "ENKRYPT_GATEWAY_KEY": "2W8UupCkazk4SsOcSu_1hAbiOgPdv0g-rvYGat",
+        "ENKRYPT_PROJECT_ID": "3c09f06c-1f0d-4153-9ac5-366397937641",
+        "ENKRYPT_USER_ID": "6469a670-1d64-4da5-b2b3-790de21ac726"
+      }
+    }
+  }
+}
+```
+
+```json Windows
+{
+  "mcpServers": {
+    "Enkrypt Secure MCP Gateway": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "-e",
+        "MCP_TRANSPORT=stdio",
+        "-v",
+        "C:\\Users\\user\\.enkrypt\\docker:/app/.enkrypt/docker",
+        "secure-mcp-gateway"
+      ],
+      "env": {
+        "ENKRYPT_GATEWAY_KEY": "2W8UupCkazk4SsOcSu_1hAbiOgPdv0g-rvYGat",
+        "ENKRYPT_PROJECT_ID": "3c09f06c-1f0d-4153-9ac5-366397937641",
+        "ENKRYPT_USER_ID": "6469a670-1d64-4da5-b2b3-790de21ac726"
+      }
+    }
+  }
+}
+```
+</CodeGroup>
+
+## Method 3: From source
+
+Install from the GitHub repository for development or customization.
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/enkryptai/secure-mcp-gateway
+    cd secure-mcp-gateway
+    ```
+  </Step>
+  
+  <Step title="Create virtual environment">
+    ```bash
+    uv venv
+    
+    # On macOS/Linux
+    source .venv/bin/activate
+    
+    # On Windows
+    .venv\Scripts\activate
+    ```
+  </Step>
+  
+  <Step title="Install dependencies">
+    ```bash
+    # Ensure pip is installed in venv
+    python -m ensurepip
+    
+    # Install uv in venv
+    python -m pip install uv
+    
+    # Install project dependencies
+    uv pip install -r requirements.txt
+    ```
+    
+    Verify MCP CLI:
+    ```bash
+    mcp version
+    # MCP version 1.9.2
+    ```
+  </Step>
+  
+  <Step title="Run setup script">
+    <CodeGroup>
+    ```bash macOS/Linux
+    cd scripts
+    chmod +x *.sh
+    ./setup.sh
+    ```
+    
+    ```cmd Windows
+    cd scripts
+    setup.bat
+    ```
+    </CodeGroup>
+    
+    This script:
+    - Creates config at `~/.enkrypt/enkrypt_mcp_config.json`
+    - Generates unique gateway key and UUIDs
+    - Sets up echo server with correct path
+    - Installs gateway for Claude Desktop
+  </Step>
+  
+  <Step title="Restart Claude Desktop">
+    Restart Claude Desktop to load the gateway.
+  </Step>
+</Steps>
+
+### Alternative: Manual installation
+
+If you prefer manual setup:
+
+```bash
+# Build the package
+python -m build
+
+# Install locally
+pip install .
+
+# Generate config
+secure-mcp-gateway generate-config
+
+# Install for client
+secure-mcp-gateway install --client claude-desktop
+```
+
+## Installing for other clients
+
+### Cursor installation
+
+For Cursor IDE:
+
+```bash
+secure-mcp-gateway install --client cursor
+```
+
+This updates:
+- **macOS/Linux:** `~/.cursor/mcp.json`
+- **Windows:** `%USERPROFILE%\.cursor\mcp.json`
+
+<Info>
+  Cursor usually doesn't require a restart, but if it shows a loading state for a long time, restart the IDE.
+</Info>
+
+### Claude Code installation
+
+For Claude Code CLI:
+
+```bash
+secure-mcp-gateway install --client claude-code
+```
+
+This runs:
+```bash
+claude mcp add --transport stdio \
+  --env ENKRYPT_GATEWAY_KEY=<your-key> \
+  --env ENKRYPT_PROJECT_ID=<project-id> \
+  --env ENKRYPT_USER_ID=<user-id> \
+  --scope user \
+  Enkrypt-Secure-MCP-Gateway \
+  -- mcp run /path/to/gateway.py
+```
+
+Verify:
+```bash
+claude mcp list
+# Should show Enkrypt-Secure-MCP-Gateway
+```
+
+<Note>
+  Claude Code requires the `claude` CLI to be installed. See [Claude Code docs](https://docs.anthropic.com/en/docs/claude-code).
+</Note>
+
+## Verification
+
+After installation, verify the gateway is working:
+
+<Steps>
+  <Step title="Check gateway connection">
+    In your MCP client (Claude Desktop, Cursor, etc.), look for the MCP server indicator (usually a 🔌 icon).
+    
+    You should see "Enkrypt Secure MCP Gateway" listed.
+  </Step>
+  
+  <Step title="List servers">
+    Ask your client: "List all available MCP servers."
+    
+    You should see the echo server.
+  </Step>
+  
+  <Step title="Test echo server">
+    Ask: "Use the echo server to send the message 'test'."
+    
+    The gateway should forward the request and return the echoed message.
+  </Step>
+  
+  <Step title="Check gateway tools">
+    The gateway provides its own management tools:
+    - `enkrypt_list_all_servers`
+    - `enkrypt_get_server_info`
+    - `enkrypt_discover_all_tools`
+    - `enkrypt_secure_call_tools`
+    - `enkrypt_get_cache_status`
+    - `enkrypt_clear_cache`
+    - `enkrypt_get_timeout_metrics`
+  </Step>
+</Steps>
+
+## Configuration file locations
+
+### Gateway config
+
+- **macOS/Linux (pip/source):** `~/.enkrypt/enkrypt_mcp_config.json`
+- **Windows (pip/source):** `%USERPROFILE%\.enkrypt\enkrypt_mcp_config.json`
+- **Docker:** `~/.enkrypt/docker/enkrypt_mcp_config.json`
+
+### MCP client configs
+
+**Claude Desktop:**
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+**Cursor:**
+- **macOS/Linux:** `~/.cursor/mcp.json`
+- **Windows:** `%USERPROFILE%\.cursor\mcp.json`
+
+**Claude Code:**
+- Managed via `claude mcp` commands (no JSON file)
+
+## Uninstallation
+
+To remove the gateway:
+
+<Steps>
+  <Step title="Uninstall from MCP client">
+    Manually remove the gateway entry from your client's config file, or use:
+    ```bash
+    # For Claude Code only
+    claude mcp remove Enkrypt-Secure-MCP-Gateway
+    ```
+  </Step>
+  
+  <Step title="Remove pip package">
+    ```bash
+    pip uninstall secure-mcp-gateway
+    ```
+  </Step>
+  
+  <Step title="Remove configuration (optional)">
+    ```bash
+    # macOS/Linux
+    rm -rf ~/.enkrypt
+    
+    # Windows
+    rmdir /s %USERPROFILE%\.enkrypt
+    ```
+  </Step>
+  
+  <Step title="Stop Docker containers (if using Docker)">
+    ```bash
+    cd infra
+    docker-compose down -v
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### Python version issues
+
+<Accordion title="Python 3.8 minimum requirement">
+The gateway requires Python 3.8 or higher, but 3.11+ is recommended.
+
+```bash
+python --version
+# If < 3.8, upgrade Python
+```
+
+On macOS with Homebrew:
+```bash
+brew install python@3.11
+```
+
+On Windows, download from [python.org](https://www.python.org/downloads/).
+</Accordion>
+
+### uv not found
+
+<Accordion title="Install uv package manager">
+If `uv --version` fails:
+
+```bash
+pip install uv
+
+# Or use python -m prefix
+python -m pip install uv
+
+# Verify
+python -m uv --version
+```
+
+If `python -m uv` works, use it for all `uv` commands.
+</Accordion>
+
+### mcp command not found
+
+<Accordion title="MCP CLI installation">
+The MCP CLI should be installed with the gateway. If not:
+
+```bash
+pip install "mcp[cli]>=1.10.1"
+
+mcp version
+```
+</Accordion>
+
+### Virtual environment issues
+
+<Accordion title="Virtual environment activation">
+If your virtual environment doesn't activate:
+
+**macOS/Linux:**
+```bash
+# Try sourcing directly
+source .secure-mcp-gateway-venv/bin/activate
+
+# Or use python -m
+python -m venv .secure-mcp-gateway-venv --clear
+```
+
+**Windows:**
+```cmd
+# Use full path
+.secure-mcp-gateway-venv\Scripts\activate.bat
+
+# Or in PowerShell
+.secure-mcp-gateway-venv\Scripts\Activate.ps1
+```
+
+If PowerShell blocks scripts:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+</Accordion>
+
+### Docker permission denied
+
+<Accordion title="Docker socket permissions">
+On Linux, if you get permission denied:
+
+```bash
+# Add your user to docker group
+sudo usermod -aG docker $USER
+
+# Log out and back in, then verify
+docker run hello-world
+```
+</Accordion>
+
+### Config file not found
+
+<Accordion title="Missing configuration file">
+If the gateway can't find the config:
+
+1. Verify the file exists:
+   ```bash
+   # macOS/Linux
+   ls -la ~/.enkrypt/enkrypt_mcp_config.json
+   
+   # Windows
+   dir %USERPROFILE%\.enkrypt\enkrypt_mcp_config.json
+   ```
+
+2. Regenerate if missing:
+   ```bash
+   secure-mcp-gateway generate-config
+   ```
+
+3. Check permissions:
+   ```bash
+   # macOS/Linux
+   chmod 644 ~/.enkrypt/enkrypt_mcp_config.json
+   ```
+</Accordion>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quick start" icon="rocket" href="/quickstart">
+    Follow the quick start guide to test your installation
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/concepts/configuration">
+    Configure servers, guardrails, and advanced settings
+  </Card>
+  
+  <Card title="CLI reference" icon="terminal" href="/cli/overview">
+    Learn all CLI commands for managing the gateway
+  </Card>
+  
+  <Card title="Deployment" icon="server" href="/deployment/local-install">
+    Deploy to production with observability
+  </Card>
+</CardGroup>

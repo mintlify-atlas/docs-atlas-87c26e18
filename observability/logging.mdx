@@ -1,0 +1,648 @@
+---
+title: 'Logging'
+description: 'Structured logging, log levels, and log aggregation with Loki for the Secure MCP Gateway'
+icon: 'file-lines'
+---
+
+## Overview
+
+The Secure MCP Gateway implements structured logging with contextual information for comprehensive debugging, auditing, and monitoring. Logs are exported via OpenTelemetry to Loki for aggregation and analysis in Grafana.
+
+## Logging Architecture
+
+```
+┌─────────────────────────────────────┐
+│ Secure MCP Gateway                  │
+│  ├── Lazy Logger (utils.py)        │
+│  ├── Structured Context             │
+│  └── Log Level Filtering            │
+└─────────────┬───────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│ OpenTelemetry Provider              │
+│  ├── OTLPLogExporter (gRPC/HTTP)   │
+│  ├── BatchLogRecordProcessor        │
+│  └── LoggerProvider                 │
+└─────────────┬───────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│ OpenTelemetry Collector             │
+│  ├── OTLP Receiver                  │
+│  ├── Batch Processor                │
+│  └── Loki Exporter (OTLP HTTP)      │
+└─────────────┬───────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│ Loki                                │
+│  ├── TSDB Storage                   │
+│  ├── Label Indexing                 │
+│  └── Query API                      │
+└─────────────┬───────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│ Grafana (Loki Datasource)           │
+│  ├── LogQL Queries                  │
+│  ├── Log Browser                    │
+│  └── Live Tail                      │
+└─────────────────────────────────────┘
+```
+
+## Log Levels
+
+The gateway supports standard Python logging levels:
+
+<ParamField path="DEBUG" type="Log Level">
+  Detailed diagnostic information for troubleshooting. Use sparingly in production.
+  
+  **Examples:**
+  - Cache lookups
+  - Configuration loading
+  - Detailed request/response data
+</ParamField>
+
+<ParamField path="INFO" type="Log Level">
+  General operational events. Default level for production.
+  
+  **Examples:**
+  - Tool execution started/completed
+  - Authentication success
+  - Server discovery
+</ParamField>
+
+<ParamField path="WARNING" type="Log Level">
+  Unexpected but handled situations that may require attention.
+  
+  **Examples:**
+  - Cache misses
+  - Slow operations (approaching timeout)
+  - Deprecated API usage
+</ParamField>
+
+<ParamField path="ERROR" type="Log Level">
+  Error conditions that prevented an operation from completing.
+  
+  **Examples:**
+  - Tool execution failures
+  - Authentication failures
+  - Guardrail API errors
+</ParamField>
+
+<ParamField path="CRITICAL" type="Log Level">
+  Severe errors requiring immediate attention.
+  
+  **Examples:**
+  - Gateway initialization failure
+  - Critical system resource exhaustion
+  - Security breach attempts
+</ParamField>
+
+### Configuring Log Level
+
+Set the log level in `enkrypt_mcp_config.json`:
+
+```json
+{
+  "common_mcp_gateway_config": {
+    "enkrypt_log_level": "INFO"
+  }
+}
+```
+
+**Options:** `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
+
+## Structured Logging
+
+### Lazy Logger Pattern
+
+The gateway uses a lazy logger to avoid circular imports during initialization:
+
+**Location:** `src/secure_mcp_gateway/utils.py:63`
+
+```python
+class LazyLogger:
+    """Lazy logger wrapper used by application modules."""
+    
+    def __getattr__(self, name):
+        logger = get_logger()
+        if logger:
+            return getattr(logger, name)
+        # No-op if logger not available
+        return lambda *args, **kwargs: None
+
+logger = LazyLogger()
+```
+
+### Using the Logger
+
+**Basic Usage:**
+
+```python
+from secure_mcp_gateway.utils import logger
+
+# Simple log
+logger.info("Gateway started")
+
+# With context
+logger.info(
+    "Tool execution completed",
+    extra={
+        "server_name": "github_server",
+        "tool_name": "create_issue",
+        "duration_ms": 250
+    }
+)
+```
+
+### Log Context Structure
+
+The gateway uses the `build_log_extra()` function to create structured context:
+
+**Location:** `src/secure_mcp_gateway/utils.py:352`
+
+```python
+def build_log_extra(
+    ctx,
+    custom_id,
+    server_name,
+    error=None,
+    **kwargs
+) -> Dict:
+    """Build structured log context with all relevant fields."""
+    extra = {
+        "custom_id": custom_id,
+        "server_name": server_name,
+    }
+    
+    # Add gateway config info
+    if hasattr(ctx, 'gateway_config') and ctx.gateway_config:
+        extra.update({
+            "project_id": ctx.gateway_config.get("project_id"),
+            "project_name": ctx.gateway_config.get("project_name"),
+            "user_id": ctx.gateway_config.get("user_id"),
+            "email": ctx.gateway_config.get("email"),
+            "mcp_config_id": ctx.gateway_config.get("mcp_config_id"),
+        })
+    
+    # Add error if present
+    if error:
+        extra["error"] = str(error)
+    
+    # Add custom fields
+    extra.update(kwargs)
+    
+    return extra
+```
+
+**Example Usage:**
+
+```python
+from secure_mcp_gateway.utils import logger, build_log_extra
+
+extra = build_log_extra(
+    ctx=ctx,
+    custom_id="abc123_1234567890",
+    server_name="github_server",
+    tool_name="create_issue",
+    duration_ms=250,
+    success=True
+)
+
+logger.info("Tool executed successfully", extra=extra)
+```
+
+### Standard Context Fields
+
+Logs include these standard fields when available:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `custom_id` | string | Request correlation ID (34 chars + timestamp) |
+| `server_name` | string | MCP server name |
+| `tool_name` | string | Tool being executed |
+| `project_id` | string | Project UUID |
+| `project_name` | string | Project name |
+| `user_id` | string | User UUID |
+| `email` | string | User email (masked in sensitive contexts) |
+| `mcp_config_id` | string | Configuration UUID |
+| `duration_ms` | int | Operation duration in milliseconds |
+| `success` | boolean | Operation success status |
+| `error` | string | Error message if failed |
+| `error_type` | string | Error classification |
+
+## Log Aggregation with Loki
+
+### Loki Configuration
+
+**Location:** `infra/loki/loki-config.yaml`
+
+```yaml
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  path_prefix: /tmp/loki
+  storage:
+    filesystem:
+      chunks_directory: /tmp/loki/chunks
+      rules_directory: /tmp/loki/rules
+  replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  allow_structured_metadata: true
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+```
+
+### Collector Export to Loki
+
+**Location:** `infra/otel_collector/otel-collector-config.yaml`
+
+```yaml
+exporters:
+  otlphttp/loki:
+    endpoint: "http://loki:3100/otlp"
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki, debug]
+```
+
+### Accessing Loki
+
+- **API:** http://localhost:3100
+- **Ready Check:** http://localhost:3100/ready
+- **Metrics:** http://localhost:3100/metrics
+
+## Querying Logs in Grafana
+
+### LogQL Basics
+
+Loki uses LogQL for querying logs:
+
+```logql
+# All logs from gateway
+{service_name="secure-mcp-gateway"}
+
+# Filter by log level
+{service_name="secure-mcp-gateway"} |= "level=ERROR"
+
+# Filter by server name
+{service_name="secure-mcp-gateway"} | json | server_name="github_server"
+
+# Filter by tool name
+{service_name="secure-mcp-gateway"} | json | tool_name="create_issue"
+
+# Search for errors
+{service_name="secure-mcp-gateway"} |~ "(?i)error|exception|failed"
+```
+
+### Advanced Queries
+
+```logql
+# Tool execution logs with duration > 1s
+{service_name="secure-mcp-gateway"} 
+  | json 
+  | duration_ms > 1000
+
+# Authentication failures
+{service_name="secure-mcp-gateway"} 
+  | json 
+  | level="ERROR" 
+  | message=~".*authentication.*failed.*"
+
+# Guardrail violations
+{service_name="secure-mcp-gateway"} 
+  | json 
+  | message=~".*guardrail.*violation.*"
+
+# Logs for specific user
+{service_name="secure-mcp-gateway"} 
+  | json 
+  | user_id="user-123-456"
+
+# Rate of errors per minute
+sum(rate(
+  {service_name="secure-mcp-gateway"} |= "level=ERROR" [1m]
+))
+```
+
+### Accessing Grafana Explore
+
+1. Open Grafana: http://localhost:3000
+2. Navigate to Explore (compass icon)
+3. Select Loki datasource
+4. Enter LogQL query
+5. Click "Run query"
+
+### Live Tail
+
+View logs in real-time:
+
+1. Grafana → Explore
+2. Select Loki
+3. Click "Live" button
+4. Enter query: `{service_name="secure-mcp-gateway"}`
+5. Logs stream in real-time
+
+## Log Format Examples
+
+### Tool Execution Log
+
+```json
+{
+  "timestamp": "2026-03-04T07:15:23.123Z",
+  "level": "INFO",
+  "message": "Tool executed successfully",
+  "service_name": "secure-mcp-gateway",
+  "custom_id": "abc123xyz789_1709533523",
+  "server_name": "github_server",
+  "tool_name": "create_issue",
+  "project_id": "proj-123-456",
+  "project_name": "MyProject",
+  "user_id": "user-789-012",
+  "email": "user@example.com",
+  "mcp_config_id": "config-345-678",
+  "duration_ms": 250,
+  "success": true
+}
+```
+
+### Guardrail Violation Log
+
+```json
+{
+  "timestamp": "2026-03-04T07:15:24.456Z",
+  "level": "WARNING",
+  "message": "Input guardrail violation detected",
+  "service_name": "secure-mcp-gateway",
+  "custom_id": "def456uvw012_1709533524",
+  "server_name": "github_server",
+  "tool_name": "delete_repo",
+  "violation_type": "policy_violation",
+  "detector": "policy_detector",
+  "blocked": true,
+  "project_id": "proj-123-456",
+  "user_id": "user-789-012"
+}
+```
+
+### Error Log
+
+```json
+{
+  "timestamp": "2026-03-04T07:15:25.789Z",
+  "level": "ERROR",
+  "message": "Tool execution failed",
+  "service_name": "secure-mcp-gateway",
+  "custom_id": "ghi789rst345_1709533525",
+  "server_name": "github_server",
+  "tool_name": "create_issue",
+  "error": "Connection timeout after 30s",
+  "error_type": "TimeoutError",
+  "duration_ms": 30001,
+  "success": false,
+  "project_id": "proj-123-456",
+  "user_id": "user-789-012"
+}
+```
+
+## Logging Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Include Context" icon="list">
+    Use structured logging with contextual fields:
+
+    ```python
+    # Good
+    logger.info(
+        "Tool executed",
+        extra={
+            "server_name": server_name,
+            "tool_name": tool_name,
+            "duration_ms": duration
+        }
+    )
+
+    # Bad
+    logger.info(f"Tool {tool_name} on {server_name} took {duration}ms")
+    ```
+
+    Structured logs enable powerful filtering and analysis.
+  </Accordion>
+
+  <Accordion title="Use Appropriate Log Levels" icon="layer-group">
+    - `DEBUG`: Detailed diagnostic info (cache lookups, config loading)
+    - `INFO`: Normal operations (tool execution, auth success)
+    - `WARNING`: Unexpected but handled (cache miss, slow operation)
+    - `ERROR`: Operation failures (tool error, auth failure)
+    - `CRITICAL`: Severe errors (gateway crash, security breach)
+  </Accordion>
+
+  <Accordion title="Mask Sensitive Data" icon="eye-slash">
+    Always mask sensitive information:
+
+    ```python
+    from secure_mcp_gateway.utils import mask_sensitive_data
+
+    # Mask before logging
+    safe_data = mask_sensitive_data({
+        "api_key": "secret123",
+        "password": "pass456"
+    })
+    logger.info("Config loaded", extra=safe_data)
+    ```
+
+    The `mask_sensitive_data` function masks keys like: `token`, `key`, `secret`, `password`, `auth`, etc.
+  </Accordion>
+
+  <Accordion title="Use Correlation IDs" icon="link">
+    Always include `custom_id` for request tracing:
+
+    ```python
+    from secure_mcp_gateway.utils import generate_custom_id
+
+    custom_id = generate_custom_id()  # "abc123xyz789_1709533523"
+    
+    logger.info("Request started", extra={"custom_id": custom_id})
+    # ... operations ...
+    logger.info("Request completed", extra={"custom_id": custom_id})
+    ```
+
+    This enables tracking requests across all logs.
+  </Accordion>
+
+  <Accordion title="Log at Decision Points" icon="code-branch">
+    Log important decisions and branches:
+
+    ```python
+    if guardrail_result.blocked:
+        logger.warning(
+            "Tool call blocked by guardrail",
+            extra={
+                "server_name": server_name,
+                "tool_name": tool_name,
+                "reason": guardrail_result.reason
+            }
+        )
+    else:
+        logger.info("Tool call allowed, executing...")
+    ```
+  </Accordion>
+
+  <Accordion title="Include Timing Information" icon="clock">
+    Log operation durations:
+
+    ```python
+    import time
+
+    start_time = time.time()
+    # ... operation ...
+    duration_ms = int((time.time() - start_time) * 1000)
+
+    logger.info(
+        "Operation completed",
+        extra={"duration_ms": duration_ms}
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Log Retention and Management
+
+### Retention Configuration
+
+Configure retention in Loki:
+
+```yaml
+limits_config:
+  retention_period: 168h  # 7 days
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+```
+
+### Compaction
+
+Loki automatically compacts old chunks to save space. Configure in `loki-config.yaml`:
+
+```yaml
+compactor:
+  working_directory: /tmp/loki/compactor
+  shared_store: filesystem
+  compaction_interval: 10m
+```
+
+### Log Volume Management
+
+Reduce log volume:
+
+1. **Increase log level:** Use `WARNING` or `ERROR` in production
+2. **Sample logs:** Log only a percentage of requests
+3. **Filter before export:** Use collector processors to filter low-value logs
+
+## Troubleshooting
+
+### Logs Not Appearing in Loki
+
+1. **Check Loki is running:**
+   ```bash
+   curl http://localhost:3100/ready
+   ```
+
+2. **Verify collector exports to Loki:**
+   ```bash
+   docker logs otel-collector | grep loki
+   ```
+
+3. **Check gateway logs are being exported:**
+   ```bash
+   docker logs otel-collector | grep "logs"
+   ```
+
+4. **Test Loki API:**
+   ```bash
+   curl -G -s "http://localhost:3100/loki/api/v1/query" \
+     --data-urlencode 'query={service_name="secure-mcp-gateway"}'
+   ```
+
+### Logs Not Structured
+
+**Symptom:** Logs appear as plain text instead of JSON
+
+**Cause:** Not using `extra` parameter
+
+**Solution:**
+```python
+# Before
+logger.info(f"Tool {tool_name} executed")  # ❌
+
+# After
+logger.info("Tool executed", extra={"tool_name": tool_name})  # ✅
+```
+
+### High Log Volume
+
+**Symptom:** Excessive disk usage, slow queries
+
+**Solutions:**
+1. Increase log level to `WARNING`
+2. Reduce `DEBUG` logs in production
+3. Configure log sampling
+4. Reduce retention period
+
+### Cannot Query by Field
+
+**Symptom:** LogQL queries by field don't work
+
+**Cause:** Need to parse JSON
+
+**Solution:**
+```logql
+# Before
+{service_name="secure-mcp-gateway"} | server_name="github"  # ❌
+
+# After
+{service_name="secure-mcp-gateway"} | json | server_name="github"  # ✅
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Metrics" icon="chart-column" href="/observability/metrics">
+    Explore Prometheus metrics and Grafana dashboards
+  </Card>
+  <Card title="OpenTelemetry Setup" icon="chart-network" href="/observability/opentelemetry">
+    Configure OTLP export and distributed tracing
+  </Card>
+  <Card title="Overview" icon="chart-line" href="/observability/overview">
+    Return to observability overview
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/installation">
+    Common issues and solutions
+  </Card>
+</CardGroup>

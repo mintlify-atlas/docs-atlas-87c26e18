@@ -1,0 +1,435 @@
+---
+title: 'Guardrails'
+description: 'Input and output guardrails for MCP servers with PII detection, toxicity filtering, and injection attack prevention'
+---
+
+## Overview
+
+Secure MCP Gateway provides comprehensive guardrail protection for both input requests and output responses. Guardrails validate content before it reaches MCP servers and after responses are received, protecting against various security threats and policy violations.
+
+![Guardrails Architecture](../images/enkrypt-secure-mcp-gateway-guardrails.png)
+
+## Architecture
+
+The guardrail system follows a plugin-based architecture with three main components:
+
+- **GuardrailProvider**: Abstract base class for all guardrail implementations
+- **InputGuardrail**: Validates requests before sending to MCP servers
+- **OutputGuardrail**: Validates responses after receiving from MCP servers
+- **PIIHandler**: Specialized interface for PII detection and redaction
+
+## Violation Types
+
+The gateway detects and blocks various violation types:
+
+### Input Violations
+
+<CardGroup cols={2}>
+  <Card title="PII Detection" icon="shield">
+    Detects personally identifiable information in requests
+  </Card>
+  <Card title="Injection Attacks" icon="code">
+    Prevents prompt injection, SQL injection, and command injection
+  </Card>
+  <Card title="Toxic Content" icon="warning">
+    Filters hate speech, abuse, and harmful language
+  </Card>
+  <Card title="NSFW Content" icon="eye-slash">
+    Blocks inappropriate or explicit content
+  </Card>
+  <Card title="Policy Violations" icon="ban">
+    Enforces custom organizational policies
+  </Card>
+  <Card title="Bias Detection" icon="scale-balanced">
+    Identifies biased or discriminatory content
+  </Card>
+</CardGroup>
+
+### Output Violations
+
+All input violations plus:
+
+<CardGroup cols={2}>
+  <Card title="Relevancy" icon="bullseye">
+    Validates response relevance to the original request
+  </Card>
+  <Card title="Adherence" icon="check">
+    Ensures response follows instructions and policies
+  </Card>
+  <Card title="Hallucination" icon="ghost">
+    Detects AI-generated false information
+  </Card>
+</CardGroup>
+
+## GuardrailProvider Interface
+
+All guardrail providers implement the `GuardrailProvider` abstract base class:
+
+```python src/secure_mcp_gateway/plugins/guardrails/base.py
+from abc import ABC, abstractmethod
+from typing import Dict, Any, Optional, List
+
+class GuardrailProvider(ABC):
+    @abstractmethod
+    def get_name(self) -> str:
+        """Get provider name (e.g., 'enkrypt', 'openai')"""
+        pass
+
+    @abstractmethod
+    def get_version(self) -> str:
+        """Get provider version"""
+        pass
+
+    @abstractmethod
+    def create_input_guardrail(
+        self, config: Dict[str, Any]
+    ) -> Optional[InputGuardrail]:
+        """Create input guardrail instance"""
+        pass
+
+    @abstractmethod
+    def create_output_guardrail(
+        self, config: Dict[str, Any]
+    ) -> Optional[OutputGuardrail]:
+        """Create output guardrail instance"""
+        pass
+
+    def create_pii_handler(
+        self, config: Dict[str, Any]
+    ) -> Optional[PIIHandler]:
+        """Create PII handler (optional)"""
+        return None
+```
+
+## Built-in Providers
+
+### Enkrypt Provider
+
+Production-grade guardrails powered by Enkrypt AI's API:
+
+```python src/secure_mcp_gateway/plugins/guardrails/enkrypt_provider.py
+class EnkryptInputGuardrail:
+    def __init__(self, config: Dict[str, Any], api_key: str, base_url: str):
+        self.api_key = api_key
+        self.base_url = base_url
+        self.policy_name = config.get("policy_name", "")
+        self.block_list = config.get("block", [])
+        self.guardrail_url = f"{base_url}/guardrails/policy/detect"
+
+    async def validate(self, request: GuardrailRequest) -> GuardrailResponse:
+        # Prepare API request
+        payload = {"text": request.content}
+        headers = {
+            "X-Enkrypt-Policy": self.policy_name,
+            "apikey": self.api_key,
+            "Content-Type": "application/json",
+            "X-Enkrypt-Source-Name": "mcp-gateway",
+            "X-Enkrypt-Source-Event": "pre-tool"
+        }
+
+        # Call Enkrypt API
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                self.guardrail_url, json=payload, headers=headers
+            ) as response:
+                resp_json = await response.json()
+
+        # Parse violations and return result
+        violations = self._parse_violations(resp_json)
+        return GuardrailResponse(
+            is_safe=not violations,
+            action=GuardrailAction.BLOCK if violations else GuardrailAction.ALLOW,
+            violations=violations
+        )
+```
+
+### OpenAI Moderation Provider
+
+Using OpenAI's Moderation API:
+
+```python src/secure_mcp_gateway/plugins/guardrails/example_providers.py
+class OpenAIInputGuardrail:
+    def __init__(self, config: Dict[str, Any]):
+        self.api_key = config.get("api_key", "")
+        self.threshold = config.get("threshold", 0.7)
+        self.block_categories = config.get(
+            "block_categories", ["hate", "violence", "sexual"]
+        )
+
+    async def validate(self, request: GuardrailRequest) -> GuardrailResponse:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.openai.com/v1/moderations",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={"input": request.content}
+            )
+
+            result = response.json()
+            moderation_result = result["results"][0]
+
+            violations = []
+            for category, flagged in moderation_result["categories"].items():
+                if flagged and category in self.block_categories:
+                    score = moderation_result["category_scores"][category]
+                    if score >= self.threshold:
+                        violations.append(
+                            GuardrailViolation(
+                                violation_type=ViolationType.TOXIC_CONTENT,
+                                severity=score,
+                                message=f"Content flagged for {category}",
+                                action=GuardrailAction.BLOCK,
+                                metadata={"category": category, "score": score}
+                            )
+                        )
+
+            return GuardrailResponse(
+                is_safe=len(violations) == 0,
+                action=GuardrailAction.ALLOW if not violations else GuardrailAction.BLOCK,
+                violations=violations
+            )
+```
+
+### Custom Keyword Provider
+
+Simple keyword-based blocking:
+
+```python src/secure_mcp_gateway/plugins/guardrails/example_providers.py
+class CustomKeywordGuardrail:
+    def __init__(self, config: Dict[str, Any]):
+        self.blocked_keywords = config.get("blocked_keywords", [])
+        self.case_sensitive = config.get("case_sensitive", False)
+
+    async def validate(self, request: GuardrailRequest) -> GuardrailResponse:
+        content = request.content
+        if not self.case_sensitive:
+            content = content.lower()
+            blocked_keywords = [kw.lower() for kw in self.blocked_keywords]
+        else:
+            blocked_keywords = self.blocked_keywords
+
+        violations = []
+        for keyword in blocked_keywords:
+            if keyword in content:
+                violations.append(
+                    GuardrailViolation(
+                        violation_type=ViolationType.KEYWORD_VIOLATION,
+                        severity=0.8,
+                        message=f"Blocked keyword detected: {keyword}",
+                        action=GuardrailAction.BLOCK,
+                        metadata={"keyword": keyword}
+                    )
+                )
+
+        return GuardrailResponse(
+            is_safe=len(violations) == 0,
+            action=GuardrailAction.ALLOW if not violations else GuardrailAction.BLOCK,
+            violations=violations
+        )
+```
+
+## Configuration
+
+### Enable Guardrails for a Server
+
+<CodeGroup>
+```json enkrypt_mcp_config.json
+{
+  "mcp_configs": {
+    "config-id": {
+      "mcp_config": [
+        {
+          "server_name": "github_server",
+          "enable_tool_guardrails": true,
+          "input_guardrails_policy": {
+            "enabled": true,
+            "policy_name": "Sample Airline Guardrail",
+            "additional_config": {
+              "pii_redaction": true
+            },
+            "block": [
+              "policy_violation",
+              "injection_attack",
+              "toxicity",
+              "pii",
+              "nsfw"
+            ]
+          },
+          "output_guardrails_policy": {
+            "enabled": true,
+            "policy_name": "Sample Airline Guardrail",
+            "additional_config": {
+              "relevancy": true,
+              "hallucination": true,
+              "adherence": true
+            },
+            "block": [
+              "policy_violation",
+              "hallucination"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+```bash CLI
+secure-mcp-gateway config update-server-guardrails <config_id> github_server \
+  --input-policy '{"enabled": true, "policy_name": "Sample Airline Guardrail", "block": ["policy_violation"]}'
+```
+</CodeGroup>
+
+### Configure Plugin Provider
+
+```json enkrypt_mcp_config.json
+{
+  "plugins": {
+    "guardrails": {
+      "provider": "enkrypt",
+      "config": {
+        "api_key": "YOUR_ENKRYPT_API_KEY",
+        "base_url": "https://api.enkryptai.com"
+      }
+    }
+  }
+}
+```
+
+## PII Handling
+
+The gateway provides automatic PII redaction and de-anonymization:
+
+<Steps>
+  <Step title="Detect PII">
+    Input guardrails detect PII in requests (emails, phone numbers, SSNs, etc.)
+  </Step>
+  <Step title="Redact PII">
+    PII is replaced with placeholders before sending to MCP server
+  </Step>
+  <Step title="Store Mapping">
+    Original PII values are stored in a secure mapping with correlation IDs
+  </Step>
+  <Step title="De-anonymize Response">
+    Output guardrails restore original PII values in responses using the mapping
+  </Step>
+</Steps>
+
+```python Example Flow
+# Original request
+"Contact John at john.doe@example.com or call 555-1234"
+
+# Redacted (sent to MCP server)
+"Contact John at [EMAIL_1] or call [PHONE_1]"
+
+# Mapping stored
+{
+  "[EMAIL_1]": "john.doe@example.com",
+  "[PHONE_1]": "555-1234"
+}
+
+# Response received
+"I've sent an email to [EMAIL_1]"
+
+# De-anonymized (returned to client)
+"I've sent an email to john.doe@example.com"
+```
+
+## Guardrail Actions
+
+When a violation is detected, the gateway can take different actions:
+
+| Action | Description |
+|--------|-------------|
+| `ALLOW` | Continue processing (log warning) |
+| `BLOCK` | Stop processing and return error |
+| `WARN` | Log warning but continue |
+| `MODIFY` | Modify content and continue (PII redaction) |
+
+## Usage Examples
+
+### Test Guardrails with MCP Client
+
+```python
+import mcp
+
+# Connect to gateway
+client = mcp.Client("http://localhost:8000/mcp/")
+
+# This will be blocked by injection attack detection
+result = client.call_tool(
+    "github_server",
+    "search_repositories",
+    {"query": "'; DROP TABLE users; --"}
+)
+# Returns: GuardrailViolation - injection_attack detected
+
+# This will pass guardrails
+result = client.call_tool(
+    "github_server",
+    "search_repositories",
+    {"query": "python web frameworks"}
+)
+# Returns: Normal response from GitHub MCP server
+```
+
+### Create Custom Guardrail Provider
+
+```python my_custom_provider.py
+from secure_mcp_gateway.plugins.guardrails.base import (
+    GuardrailProvider,
+    InputGuardrail,
+    GuardrailRequest,
+    GuardrailResponse
+)
+
+class MyInputGuardrail:
+    async def validate(self, request: GuardrailRequest) -> GuardrailResponse:
+        # Implement your custom validation logic
+        if "forbidden" in request.content:
+            return GuardrailResponse(
+                is_safe=False,
+                action=GuardrailAction.BLOCK,
+                violations=[...]
+            )
+        return GuardrailResponse(is_safe=True, action=GuardrailAction.ALLOW, violations=[])
+
+class MyGuardrailProvider(GuardrailProvider):
+    def get_name(self) -> str:
+        return "my_custom"
+
+    def create_input_guardrail(self, config):
+        return MyInputGuardrail()
+```
+
+## Best Practices
+
+<Warning>
+**Performance Considerations**: Guardrails add latency to requests. Use asynchronous guardrails (`enkrypt_async_input_guardrails_enabled: true`) for high-throughput scenarios.
+</Warning>
+
+<Info>
+**Policy Management**: Create guardrail policies in the [Enkrypt Dashboard](https://app.enkryptai.com/guardrails) for easier management and updates.
+</Info>
+
+<Note>
+**Testing**: Use the included test servers in `bad_mcps/` to test your guardrail configurations against various attack vectors.
+</Note>
+
+## Metrics and Monitoring
+
+Guardrails emit telemetry for monitoring:
+
+- `guardrail.input.validation.count` - Number of input validations
+- `guardrail.output.validation.count` - Number of output validations
+- `guardrail.violations.count` - Violations detected by type
+- `guardrail.blocks.count` - Requests blocked
+- `guardrail.latency.ms` - Validation latency
+
+View metrics in Grafana dashboard or query via Prometheus.
+
+## Related Resources
+
+- [Enkrypt Guardrails Documentation](https://docs.enkryptai.com/guardrails)
+- [Blog: How Enkrypt's MCP Gateway Prevents Top Attacks](https://www.enkryptai.com/blog/how-enkrypts-secure-mcp-gateway-and-mcp-scanner-prevent-top-attacks)
+- [Create Guardrails via API](https://docs.enkryptai.com/guardrails-api-reference/endpoint/add-policy)

@@ -1,0 +1,492 @@
+---
+title: 'Tool Discovery'
+description: 'Dynamic tool discovery from MCP servers with automatic caching and validation'
+---
+
+## Overview
+
+Secure MCP Gateway automatically discovers available tools from MCP servers and makes them accessible to clients. The discovery service handles authentication, caching, validation, and forwards discovery requests to actual MCP servers.
+
+## Discovery Flow
+
+<Steps>
+  <Step title="Client Request">
+    MCP client requests tool discovery via `enkrypt_discover_all_tools`
+  </Step>
+  <Step title="Authentication">
+    Gateway validates client credentials and retrieves configuration
+  </Step>
+  <Step title="Cache Check">
+    Discovery service checks if tools are already cached
+  </Step>
+  <Step title="Forward Request">
+    If cache miss, gateway forwards discovery request to MCP server
+  </Step>
+  <Step title="Validation">
+    Optional guardrail validation of discovered tools
+  </Step>
+  <Step title="Cache Storage">
+    Tools are cached for future requests (4 hours default)
+  </Step>
+  <Step title="Return Results">
+    Discovered tools returned to client with metadata
+  </Step>
+</Steps>
+
+## DiscoveryService Implementation
+
+### Core Discovery Method
+
+```python src/secure_mcp_gateway/services/discovery/discovery_service.py
+from opentelemetry import trace
+from secure_mcp_gateway.client import forward_tool_call
+from secure_mcp_gateway.plugins.auth import get_auth_config_manager
+from secure_mcp_gateway.services.cache.cache_service import cache_service
+
+class DiscoveryService:
+    def __init__(self):
+        self.auth_manager = get_auth_config_manager()
+        self.cache_service = cache_service
+        
+        # Import guardrail manager for registration validation
+        try:
+            from secure_mcp_gateway.plugins.guardrails import (
+                get_guardrail_config_manager
+            )
+            self.guardrail_manager = get_guardrail_config_manager()
+            self.registration_validation_enabled = True
+        except Exception:
+            self.guardrail_manager = None
+            self.registration_validation_enabled = False
+    
+    async def discover_tools(
+        self,
+        ctx,
+        server_name: str | None = None,
+        tracer_obj=None,
+        logger_instance=None,
+        IS_DEBUG_LOG_LEVEL: bool = False,
+        session_key: str = None
+    ) -> dict[str, Any]:
+        """
+        Discovers and caches available tools for a server or all servers.
+        
+        Args:
+            ctx: The MCP context
+            server_name: Name of server to discover (None for all)
+            tracer_obj: OpenTelemetry tracer
+            logger: Logger instance
+            IS_DEBUG_LOG_LEVEL: Debug logging flag
+        
+        Returns:
+            dict: Discovery result with status, message, tools, source
+        """
+        logger.info(f"[discover_server_tools] Requested for: {server_name}")
+        custom_id = self._generate_custom_id()
+        
+        with tracer_obj.start_as_current_span("enkrypt_discover_all_tools") as main_span:
+            main_span.set_attribute("server_name", server_name or "all")
+            main_span.set_attribute("custom_id", custom_id)
+            
+            # Get credentials and config
+            credentials = self.auth_manager.get_gateway_credentials(ctx)
+            gateway_key = credentials.gateway_key
+            
+            # Authenticate
+            auth_result = await self.auth_manager.authenticate(credentials)
+            
+            if not auth_result.is_success:
+                return self._create_error_response(
+                    "Authentication failed",
+                    auth_result.message
+                )
+            
+            # Get gateway config
+            gateway_config = auth_result.gateway_config
+            mcp_config = auth_result.mcp_config
+            config_id = auth_result.metadata.get("mcp_config_id")
+            
+            # Discover tools
+            if server_name:
+                result = await self._discover_single_server(
+                    ctx, server_name, config_id, mcp_config,
+                    gateway_config, custom_id, tracer_obj
+                )
+            else:
+                result = await self._discover_all_servers(
+                    ctx, config_id, mcp_config, gateway_config,
+                    custom_id, tracer_obj
+                )
+            
+            return result
+```
+
+### Single Server Discovery
+
+```python src/secure_mcp_gateway/services/discovery/discovery_service.py
+async def _discover_single_server(
+    self,
+    ctx,
+    server_name: str,
+    config_id: str,
+    mcp_config: list,
+    gateway_config: dict,
+    custom_id: str,
+    tracer_obj
+) -> dict:
+    """
+    Discover tools for a specific server.
+    """
+    # Find server in config
+    server_entry = next(
+        (s for s in mcp_config if s["server_name"] == server_name),
+        None
+    )
+    
+    if not server_entry:
+        return self._create_error_response(
+            "Server not found",
+            f"Server '{server_name}' not configured"
+        )
+    
+    with tracer_obj.start_as_current_span(f"discover_{server_name}") as span:
+        span.set_attribute("server_name", server_name)
+        
+        # Check cache first
+        cached_tools = self.cache_service.get_cached_tools(
+            self.cache_service.cache_client,
+            config_id,
+            server_name
+        )
+        
+        if cached_tools:
+            logger.info(f"[cache] Hit for {server_name}")
+            return {
+                "status": "success",
+                "message": f"Tools discovered for {server_name}",
+                "tools": cached_tools,
+                "source": "cache",
+                "server_name": server_name
+            }
+        
+        # Cache miss - forward to MCP server
+        logger.info(f"[cache] Miss for {server_name}, discovering...")
+        
+        # Check if tools are predefined in config
+        if server_entry.get("tools"):
+            tools = list(server_entry["tools"].values())
+            
+            # Cache discovered tools
+            self.cache_service.cache_tools(
+                self.cache_service.cache_client,
+                config_id,
+                server_name,
+                tools,
+                self.cache_service.tool_cache_expiration
+            )
+            
+            return {
+                "status": "success",
+                "message": f"Tools discovered for {server_name}",
+                "tools": tools,
+                "source": "config",
+                "server_name": server_name
+            }
+        
+        # Forward discovery request to actual MCP server
+        try:
+            result = await forward_tool_call(
+                server_name=server_name,
+                tool_name=None,  # None means discover tools
+                args=None,
+                gateway_config=gateway_config,
+                config_id=config_id,
+                project_id=auth_result.project_id,
+                session_key=session_key
+            )
+            
+            tools = result.get("tools", [])
+            
+            # Optional: Validate tools with guardrails
+            if self.registration_validation_enabled:
+                validation_result = await self._validate_tool_registration(
+                    server_name, tools, server_entry
+                )
+                if not validation_result.is_safe:
+                    logger.warning(
+                        f"Tool registration validation failed for {server_name}"
+                    )
+                    # Filter or block based on policy
+            
+            # Cache discovered tools
+            self.cache_service.cache_tools(
+                self.cache_service.cache_client,
+                config_id,
+                server_name,
+                tools,
+                self.cache_service.tool_cache_expiration
+            )
+            
+            return {
+                "status": "success",
+                "message": f"Tools discovered for {server_name}",
+                "tools": tools,
+                "source": "server",
+                "server_name": server_name
+            }
+            
+        except Exception as e:
+            logger.error(f"Discovery failed for {server_name}: {e}")
+            return self._create_error_response(
+                "Discovery failed",
+                str(e)
+            )
+```
+
+### All Servers Discovery
+
+```python src/secure_mcp_gateway/services/discovery/discovery_service.py
+async def _discover_all_servers(
+    self,
+    ctx,
+    config_id: str,
+    mcp_config: list,
+    gateway_config: dict,
+    custom_id: str,
+    tracer_obj
+) -> dict:
+    """
+    Discover tools for all configured servers.
+    """
+    all_tools = {}
+    servers_needing_discovery = []
+    
+    # Check cache for each server
+    for server_entry in mcp_config:
+        server_name = server_entry["server_name"]
+        
+        cached_tools = self.cache_service.get_cached_tools(
+            self.cache_service.cache_client,
+            config_id,
+            server_name
+        )
+        
+        if cached_tools:
+            all_tools[server_name] = {
+                "tools": cached_tools,
+                "source": "cache"
+            }
+        else:
+            servers_needing_discovery.append(server_name)
+    
+    # Discover tools for servers not in cache
+    for server_name in servers_needing_discovery:
+        result = await self._discover_single_server(
+            ctx, server_name, config_id, mcp_config,
+            gateway_config, custom_id, tracer_obj
+        )
+        
+        if result["status"] == "success":
+            all_tools[server_name] = {
+                "tools": result["tools"],
+                "source": result["source"]
+            }
+    
+    return {
+        "status": "success",
+        "message": f"Discovered tools for {len(all_tools)} servers",
+        "available_servers": all_tools,
+        "servers_needing_discovery": servers_needing_discovery
+    }
+```
+
+## Tool Validation
+
+Optional guardrail validation during discovery:
+
+```python src/secure_mcp_gateway/services/discovery/discovery_service.py
+async def _validate_tool_registration(
+    self,
+    server_name: str,
+    tools: list,
+    server_entry: dict
+) -> GuardrailResponse:
+    """
+    Validate discovered tools against guardrail policies.
+    """
+    from secure_mcp_gateway.plugins.guardrails.base import (
+        ToolRegistrationRequest
+    )
+    
+    request = ToolRegistrationRequest(
+        server_name=server_name,
+        tools=tools,
+        validation_mode="filter",
+        tool_guardrails_policy=server_entry.get("input_guardrails_policy")
+    )
+    
+    provider = self.guardrail_manager.get_provider()
+    if provider and hasattr(provider, 'validate_tool_registration'):
+        return await provider.validate_tool_registration(request)
+    
+    # No validation available - allow all
+    return GuardrailResponse(
+        is_safe=True,
+        action=GuardrailAction.ALLOW,
+        violations=[]
+    )
+```
+
+## Gateway Integration
+
+The discovery service is integrated into the main gateway:
+
+```python src/secure_mcp_gateway/gateway.py
+from secure_mcp_gateway.services.discovery.discovery_service import (
+    DiscoveryService
+)
+
+discovery_service = DiscoveryService()
+
+@mcp.tool()
+async def enkrypt_discover_all_tools(
+    ctx: Context,
+    server_name: str | None = None
+) -> dict:
+    """
+    Discover available tools from MCP servers.
+    
+    Args:
+        server_name: Specific server to discover (None for all servers)
+    
+    Returns:
+        Dictionary with discovered tools and metadata
+    """
+    return await discovery_service.discover_tools(
+        ctx=ctx,
+        server_name=server_name,
+        tracer_obj=tracer,
+        logger_instance=logger,
+        IS_DEBUG_LOG_LEVEL=IS_DEBUG_LOG_LEVEL
+    )
+```
+
+## Tool Format
+
+Discovered tools follow the MCP tool schema:
+
+```json Example Tool
+{
+  "name": "search_repositories",
+  "description": "Search for GitHub repositories",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Search query"
+      },
+      "language": {
+        "type": "string",
+        "description": "Filter by programming language"
+      }
+    },
+    "required": ["query"]
+  }
+}
+```
+
+## Client Usage Examples
+
+<CodeGroup>
+```python Python
+import mcp
+
+client = mcp.Client("http://localhost:8000/mcp/")
+
+# Discover all tools from all servers
+result = client.call_tool(
+    "Enkrypt Secure MCP Gateway",
+    "enkrypt_discover_all_tools",
+    {}
+)
+
+print(f"Discovered tools from {len(result['available_servers'])} servers")
+for server_name, server_data in result['available_servers'].items():
+    print(f"  {server_name}: {len(server_data['tools'])} tools")
+
+# Discover tools from specific server
+result = client.call_tool(
+    "Enkrypt Secure MCP Gateway",
+    "enkrypt_discover_all_tools",
+    {"server_name": "github_server"}
+)
+
+for tool in result['tools']:
+    print(f"  - {tool['name']}: {tool['description']}")
+```
+
+```bash CLI
+# List all servers and their tools
+secure-mcp-gateway server list
+
+# Get specific server info with tools
+secure-mcp-gateway server info github_server
+```
+</CodeGroup>
+
+## Predefined Tools
+
+Servers can have predefined tools in configuration instead of dynamic discovery:
+
+```json enkrypt_mcp_config.json
+{
+  "mcp_config": [
+    {
+      "server_name": "custom_server",
+      "tools": {
+        "custom_tool_1": {
+          "name": "custom_tool_1",
+          "description": "My custom tool",
+          "inputSchema": {...}
+        },
+        "custom_tool_2": {
+          "name": "custom_tool_2",
+          "description": "Another custom tool",
+          "inputSchema": {...}
+        }
+      }
+    }
+  ]
+}
+```
+
+## Performance Optimization
+
+<Info>
+**Cache First**: Discovery always checks cache before forwarding to MCP servers, reducing latency by 80-95%.
+</Info>
+
+<Note>
+**Parallel Discovery**: When discovering all servers, requests are made in parallel for better performance.
+</Note>
+
+<Warning>
+**Discovery Timeout**: Discovery requests have a configurable timeout (default 20s). Adjust `discovery_timeout` in config if needed.
+</Warning>
+
+## Metrics and Monitoring
+
+Discovery service emits telemetry:
+
+- `discovery.requests.total` - Total discovery requests
+- `discovery.cache_hits` - Cache hits
+- `discovery.cache_misses` - Cache misses
+- `discovery.latency.ms` - Discovery latency
+- `discovery.errors.count` - Discovery errors
+
+## Related Resources
+
+- [MCP Protocol Specification](https://modelcontextprotocol.io/)
+- [Caching Documentation](/features/caching)
+- [Server Configuration Guide](/configure/servers)

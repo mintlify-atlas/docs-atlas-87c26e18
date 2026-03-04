@@ -1,0 +1,655 @@
+---
+title: 'TelemetryProvider Interface'
+description: 'Integrate custom observability backends for logging, tracing, and metrics'
+icon: 'chart-line'
+---
+
+## Overview
+
+Telemetry providers export logs, distributed traces, and metrics to observability platforms. The gateway supports OpenTelemetry, Datadog, New Relic, Prometheus, and custom backends.
+
+## TelemetryProvider Interface
+
+All telemetry providers must implement the `TelemetryProvider` abstract base class from `src/secure_mcp_gateway/plugins/telemetry/base.py`.
+
+### Required Methods
+
+```python
+from abc import ABC, abstractmethod
+from typing import Any, Dict
+
+class TelemetryProvider(ABC):
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Get the provider name"""
+        pass
+
+    @property
+    @abstractmethod
+    def version(self) -> str:
+        """Get the provider version"""
+        pass
+
+    @abstractmethod
+    def initialize(self, config: dict[str, Any]) -> TelemetryResult:
+        """Initialize the telemetry provider"""
+        pass
+
+    @abstractmethod
+    def create_logger(self, name: str) -> Any:
+        """Create a logger instance"""
+        pass
+
+    @abstractmethod
+    def create_tracer(self, name: str) -> Any:
+        """Create a tracer instance"""
+        pass
+```
+
+### Optional Methods
+
+```python
+def create_meter(self, name: str) -> Any:
+    """Create a meter instance (optional)"""
+    return None
+
+def shutdown(self) -> TelemetryResult:
+    """Shutdown the provider (optional)"""
+    return TelemetryResult(
+        success=True,
+        provider_name=self.name,
+        message="Shutdown successful"
+    )
+```
+
+## Data Models
+
+### TelemetryResult
+
+```python
+from dataclasses import dataclass, field
+from datetime import datetime
+
+@dataclass
+class TelemetryResult:
+    success: bool
+    provider_name: str
+    message: str = ""
+    data: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    timestamp: datetime = field(default_factory=datetime.now)
+```
+
+### TelemetryLevel Enum
+
+```python
+from enum import Enum
+
+class TelemetryLevel(Enum):
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"
+```
+
+## Example: Console Provider
+
+Simple console logging provider from `src/secure_mcp_gateway/plugins/telemetry/example_providers.py:20`:
+
+```python
+import logging
+from secure_mcp_gateway.plugins.telemetry.base import (
+    TelemetryProvider,
+    TelemetryResult,
+)
+
+class ConsoleTelemetryProvider(TelemetryProvider):
+    """Simple console-based telemetry provider."""
+
+    def __init__(self):
+        self._logger = None
+        self._initialized = False
+
+    @property
+    def name(self) -> str:
+        return "console"
+
+    @property
+    def version(self) -> str:
+        return "1.0.0"
+
+    def initialize(self, config: dict[str, Any]) -> TelemetryResult:
+        try:
+            log_level = config.get("level", "INFO")
+
+            # Create logger
+            self._logger = logging.getLogger("enkrypt-console")
+            self._logger.setLevel(getattr(logging, log_level.upper()))
+
+            # Add console handler if not exists
+            if not self._logger.handlers:
+                handler = logging.StreamHandler()
+                formatter = logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                )
+                handler.setFormatter(formatter)
+                self._logger.addHandler(handler)
+
+            self._initialized = True
+
+            return TelemetryResult(
+                success=True,
+                provider_name=self.name,
+                message="Console telemetry initialized",
+            )
+        except Exception as e:
+            return TelemetryResult(
+                success=False,
+                provider_name=self.name,
+                error=str(e),
+            )
+
+    def create_logger(self, name: str) -> Any:
+        return self._logger
+
+    def create_tracer(self, name: str) -> Any:
+        return None  # Console provider doesn't support tracing
+```
+
+## Example: Datadog Provider
+
+From `src/secure_mcp_gateway/plugins/telemetry/example_providers.py:86`:
+
+```python
+from secure_mcp_gateway.utils import logger
+
+class DatadogTelemetryProvider(TelemetryProvider):
+    """Datadog telemetry provider."""
+
+    def __init__(self, api_key: str, app_key: str | None = None):
+        self.api_key = api_key
+        self.app_key = app_key
+        self._logger = None
+        self._tracer = None
+        self._initialized = False
+
+    @property
+    def name(self) -> str:
+        return "datadog"
+
+    @property
+    def version(self) -> str:
+        return "1.0.0"
+
+    def initialize(self, config: dict[str, Any]) -> TelemetryResult:
+        try:
+            logger.info(f"[{self.name}] Initializing Datadog provider...")
+
+            try:
+                from ddtrace import patch_all, tracer
+
+                # Patch all supported libraries
+                patch_all()
+
+                # Configure tracer
+                tracer.configure(
+                    hostname=config.get("hostname", "localhost"),
+                    port=config.get("port", 8126),
+                )
+
+                self._tracer = tracer
+                self._initialized = True
+
+                logger.info(f"[{self.name}] ✓ Datadog initialized")
+
+                return TelemetryResult(
+                    success=True,
+                    provider_name=self.name,
+                    message="Datadog initialized successfully",
+                )
+            except ImportError:
+                return TelemetryResult(
+                    success=False,
+                    provider_name=self.name,
+                    error="ddtrace not installed. Run: pip install ddtrace",
+                )
+
+        except Exception as e:
+            logger.error(f"[{self.name}] ✗ Failed: {e}")
+            return TelemetryResult(
+                success=False,
+                provider_name=self.name,
+                error=str(e),
+            )
+
+    def create_logger(self, name: str) -> Any:
+        import logging
+        return logging.getLogger(name)
+
+    def create_tracer(self, name: str) -> Any:
+        return self._tracer
+```
+
+## Example: Prometheus Provider
+
+From `src/secure_mcp_gateway/plugins/telemetry/example_providers.py:256`:
+
+```python
+class PrometheusTelemetryProvider(TelemetryProvider):
+    """Prometheus telemetry provider."""
+
+    def __init__(self, port: int = 8000):
+        self.port = port
+        self._initialized = False
+
+    @property
+    def name(self) -> str:
+        return "prometheus"
+
+    @property
+    def version(self) -> str:
+        return "1.0.0"
+
+    def initialize(self, config: dict[str, Any]) -> TelemetryResult:
+        try:
+            logger.info(f"[{self.name}] Initializing Prometheus provider...")
+
+            try:
+                from prometheus_client import start_http_server
+
+                # Start metrics server
+                start_http_server(self.port)
+
+                self._initialized = True
+
+                logger.info(f"[{self.name}] ✓ Prometheus metrics on port {self.port}")
+
+                return TelemetryResult(
+                    success=True,
+                    provider_name=self.name,
+                    message=f"Prometheus initialized on port {self.port}",
+                )
+            except ImportError:
+                return TelemetryResult(
+                    success=False,
+                    provider_name=self.name,
+                    error="prometheus-client not installed. Run: pip install prometheus-client",
+                )
+
+        except Exception as e:
+            logger.error(f"[{self.name}] ✗ Failed: {e}")
+            return TelemetryResult(
+                success=False,
+                provider_name=self.name,
+                error=str(e),
+            )
+
+    def create_logger(self, name: str) -> Any:
+        import logging
+        return logging.getLogger(name)
+
+    def create_tracer(self, name: str) -> Any:
+        return None  # Prometheus doesn't use tracers
+```
+
+## Example: Custom Provider Template
+
+From `src/secure_mcp_gateway/plugins/telemetry/example_providers.py:334`:
+
+```python
+class CustomTelemetryProvider(TelemetryProvider):
+    """Template for creating custom telemetry providers."""
+
+    def __init__(self, **kwargs):
+        self._config = kwargs
+        self._initialized = False
+        self._logger = None
+        self._tracer = None
+
+    @property
+    def name(self) -> str:
+        return "custom"
+
+    @property
+    def version(self) -> str:
+        return "1.0.0"
+
+    def initialize(self, config: dict[str, Any]) -> TelemetryResult:
+        """
+        Initialize your telemetry backend.
+
+        Steps:
+        1. Connect to your telemetry service
+        2. Configure authentication
+        3. Set up logging/tracing/metrics
+        4. Return TelemetryResult
+        """
+        try:
+            logger.info(f"[{self.name}] Initializing custom provider...")
+
+            # TODO: Implement your initialization logic
+
+            self._initialized = True
+
+            logger.info(f"[{self.name}] ✓ Custom provider initialized")
+
+            return TelemetryResult(
+                success=True,
+                provider_name=self.name,
+                message="Custom provider initialized",
+            )
+
+        except Exception as e:
+            logger.error(f"[{self.name}] ✗ Failed: {e}")
+            return TelemetryResult(
+                success=False,
+                provider_name=self.name,
+                error=str(e),
+            )
+
+    def create_logger(self, name: str) -> Any:
+        """
+        Create and return a logger instance.
+
+        This should return an object compatible with Python's logging interface.
+        """
+        import logging
+        return logging.getLogger(name)
+
+    def create_tracer(self, name: str) -> Any:
+        """
+        Create and return a tracer instance.
+
+        This should return an object compatible with OpenTelemetry's tracer interface.
+        """
+        return None
+```
+
+## Configuration
+
+Register your telemetry provider in the config file:
+
+```json
+{
+  "plugins": {
+    "telemetry": {
+      "provider": "datadog",
+      "config": {
+        "api_key": "your-api-key",
+        "hostname": "localhost",
+        "port": 8126,
+        "service_name": "secure-mcp-gateway",
+        "environment": "production"
+      }
+    }
+  }
+}
+```
+
+### OpenTelemetry Configuration
+
+The default provider is OpenTelemetry:
+
+```json
+{
+  "plugins": {
+    "telemetry": {
+      "provider": "opentelemetry",
+      "config": {
+        "enabled": true,
+        "url": "http://localhost:4317",
+        "insecure": true,
+        "service_name": "secure-mcp-gateway",
+        "export_prometheus": true,
+        "export_otlp": true
+      }
+    }
+  }
+}
+```
+
+## Using Telemetry in Your Code
+
+### Logging
+
+```python
+from secure_mcp_gateway.utils import logger
+
+logger.info("Processing request", extra={
+    "server_name": "github",
+    "tool_name": "list_repos",
+    "user_id": "user-123"
+})
+
+logger.error("Authentication failed", extra={
+    "error": "Invalid API key",
+    "project_id": "project-456"
+})
+```
+
+### Distributed Tracing
+
+```python
+from secure_mcp_gateway.plugins.telemetry.config_manager import get_telemetry_manager
+
+telemetry_manager = get_telemetry_manager()
+tracer = telemetry_manager.get_tracer()
+
+with tracer.start_as_current_span("tool_execution") as span:
+    span.set_attribute("server_name", "github")
+    span.set_attribute("tool_name", "create_issue")
+    span.set_attribute("user_id", "user-123")
+    
+    try:
+        # Your operation
+        result = await execute_tool()
+        span.set_attribute("success", True)
+    except Exception as e:
+        span.set_attribute("error", str(e))
+        span.record_exception(e)
+        raise
+```
+
+### Metrics
+
+```python
+from opentelemetry import metrics
+
+meter = metrics.get_meter(__name__)
+
+# Counter
+request_counter = meter.create_counter(
+    "requests_total",
+    description="Total number of requests"
+)
+request_counter.add(1, {"server": "github", "status": "success"})
+
+# Histogram
+latency_histogram = meter.create_histogram(
+    "request_duration_ms",
+    description="Request duration in milliseconds"
+)
+latency_histogram.record(123.45, {"server": "github"})
+
+# Gauge
+active_connections = meter.create_up_down_counter(
+    "active_connections",
+    description="Number of active connections"
+)
+active_connections.add(1)  # Connection opened
+active_connections.add(-1)  # Connection closed
+```
+
+## Integration with OpenTelemetry Collector
+
+The gateway exports telemetry to the OpenTelemetry Collector using OTLP:
+
+```yaml
+# docker-compose.yml
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel_collector/config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Structured Logging">
+    Always use structured logging with context:
+
+    ```python
+    # Good
+    logger.info("Tool executed", extra={
+        "server_name": "github",
+        "tool_name": "list_repos",
+        "duration_ms": 123,
+        "user_id": "user-123"
+    })
+
+    # Bad
+    logger.info(f"Tool github.list_repos executed in 123ms for user-123")
+    ```
+  </Accordion>
+
+  <Accordion title="Span Attributes">
+    Set meaningful span attributes for distributed tracing:
+
+    ```python
+    with tracer.start_as_current_span("guardrail_check") as span:
+        span.set_attribute("guardrail.type", "input")
+        span.set_attribute("guardrail.policy", "policy-name")
+        span.set_attribute("guardrail.result", "blocked")
+        span.set_attribute("guardrail.violations", 2)
+    ```
+  </Accordion>
+
+  <Accordion title="Error Handling">
+    Always handle initialization errors gracefully:
+
+    ```python
+    def initialize(self, config: dict[str, Any]) -> TelemetryResult:
+        try:
+            # Your initialization
+            return TelemetryResult(success=True, provider_name=self.name)
+        except ImportError as e:
+            return TelemetryResult(
+                success=False,
+                provider_name=self.name,
+                error=f"Missing dependency: {e}"
+            )
+        except Exception as e:
+            return TelemetryResult(
+                success=False,
+                provider_name=self.name,
+                error=str(e)
+            )
+    ```
+  </Accordion>
+
+  <Accordion title="Resource Cleanup">
+    Implement proper shutdown for cleanup:
+
+    ```python
+    def shutdown(self) -> TelemetryResult:
+        try:
+            # Flush buffers
+            if self._logger:
+                for handler in self._logger.handlers:
+                    handler.flush()
+                    handler.close()
+            
+            # Close connections
+            if self._tracer:
+                self._tracer.shutdown()
+            
+            return TelemetryResult(
+                success=True,
+                provider_name=self.name,
+                message="Shutdown successful"
+            )
+        except Exception as e:
+            return TelemetryResult(
+                success=False,
+                provider_name=self.name,
+                error=str(e)
+            )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Testing Your Provider
+
+```python
+import pytest
+from secure_mcp_gateway.plugins.telemetry.base import TelemetryResult
+
+def test_provider_initialization():
+    provider = ConsoleTelemetryProvider()
+    result = provider.initialize({"level": "INFO"})
+    
+    assert result.success
+    assert result.provider_name == "console"
+
+def test_logger_creation():
+    provider = ConsoleTelemetryProvider()
+    provider.initialize({"level": "INFO"})
+    
+    logger = provider.create_logger("test")
+    assert logger is not None
+    
+    # Test logging
+    logger.info("Test message")
+    logger.error("Error message")
+
+def test_initialization_failure():
+    provider = DatadogTelemetryProvider(api_key="invalid")
+    result = provider.initialize({"invalid_config": True})
+    
+    # Should handle errors gracefully
+    assert isinstance(result, TelemetryResult)
+    if not result.success:
+        assert result.error is not None
+```
+
+## Available Providers
+
+| Provider | Description | Dependencies |
+|----------|-------------|-------------|
+| `opentelemetry` | Full OpenTelemetry with OTLP export | `opentelemetry-sdk` |
+| `console` | Simple console logging | Built-in |
+| `datadog` | Datadog APM integration | `ddtrace` |
+| `newrelic` | New Relic integration | `newrelic` |
+| `prometheus` | Prometheus metrics only | `prometheus-client` |
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Plugin Overview" icon="puzzle-piece" href="/plugins/overview">
+    Learn about the plugin system architecture
+  </Card>
+  <Card title="Observability" icon="chart-mixed" href="/observability/overview">
+    Set up full observability stack
+  </Card>
+</CardGroup>

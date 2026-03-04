@@ -1,0 +1,474 @@
+---
+title: 'Adding MCP Servers'
+description: 'Complete guide to adding and configuring MCP servers in the gateway'
+icon: 'server'
+---
+
+## Overview
+
+Secure MCP Gateway allows you to add multiple MCP servers to your configuration and access them through a unified interface. This guide covers everything from basic server addition to advanced configurations with OAuth, environment variables, and tools.
+
+## Prerequisites
+
+- Gateway installed and configured
+- MCP server details (command, arguments, dependencies)
+- For remote servers: Server URL and authentication credentials
+- For OAuth servers: OAuth client credentials
+
+## Adding Your First Server
+
+### Using the CLI
+
+The simplest way to add a server is using the `config add-server` command:
+
+```bash
+secure-mcp-gateway config add-server \
+  --config-name "default_config" \
+  --server-name "my-server" \
+  --server-command "python" \
+  --args="server.py" \
+  --description "My first MCP server"
+```
+
+### Using JSON Configuration
+
+You can also manually edit the configuration file at `~/.enkrypt/enkrypt_mcp_config.json`:
+
+```json
+{
+  "mcp_configs": {
+    "config-id": {
+      "mcp_config": [
+        {
+          "server_name": "my-server",
+          "description": "My first MCP server",
+          "config": {
+            "command": "python",
+            "args": ["server.py"]
+          },
+          "tools": {},
+          "input_guardrails_policy": {
+            "enabled": false
+          },
+          "output_guardrails_policy": {
+            "enabled": false
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+## Common MCP Servers
+
+### GitHub MCP Server
+
+Add the official GitHub MCP server with NPX:
+
+```bash
+secure-mcp-gateway config add-server \
+  --config-name "production-config" \
+  --server-name "github" \
+  --server-command "npx" \
+  --args="-y,@modelcontextprotocol/server-github" \
+  --env '{"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_your_token_here"}' \
+  --description "GitHub MCP Server"
+```
+
+<Note>
+Multiple arguments are passed as comma-separated values in `--args`. The `=` sign is required when args start with `-`.
+</Note>
+
+### Filesystem MCP Server
+
+```bash
+secure-mcp-gateway config add-server \
+  --config-name "default_config" \
+  --server-name "filesystem" \
+  --server-command "npx" \
+  --args="-y,@modelcontextprotocol/server-filesystem,/path/to/allowed/directory" \
+  --description "Filesystem access server"
+```
+
+### Brave Search MCP Server
+
+```bash
+secure-mcp-gateway config add-server \
+  --config-name "default_config" \
+  --server-name "brave-search" \
+  --server-command "npx" \
+  --args="-y,@modelcontextprotocol/server-brave-search" \
+  --env '{"BRAVE_API_KEY": "your_brave_api_key"}' \
+  --description "Brave Search API integration"
+```
+
+## Advanced Configuration
+
+### Servers with Environment Variables
+
+Pass environment variables using the `--env` flag with JSON:
+
+```bash
+secure-mcp-gateway config add-server \
+  --config-name "production-config" \
+  --server-name "database-server" \
+  --server-command "python" \
+  --args="db_server.py" \
+  --env '{
+    "DB_HOST": "localhost",
+    "DB_PORT": "5432",
+    "DB_NAME": "production",
+    "DB_USER": "admin",
+    "DB_PASSWORD": "secure_password",
+    "DEBUG": "false"
+  }' \
+  --description "Database MCP Server"
+```
+
+### Servers with Tool Restrictions
+
+Restrict which tools are exposed from a server:
+
+```bash
+secure-mcp-gateway config add-server \
+  --config-name "default_config" \
+  --server-name "restricted-server" \
+  --server-command "python" \
+  --args="tools_server.py" \
+  --tools '{
+    "read_file": {"enabled": true},
+    "search": {"enabled": true},
+    "delete_file": {"enabled": false},
+    "execute_command": {"enabled": false}
+  }' \
+  --description "Server with restricted tool access"
+```
+
+<Accordion title="How tool restrictions work">
+When you specify tools in the config:
+- Only listed tools with `"enabled": true` will be discovered and accessible
+- All other tools from the server will be hidden
+- If `tools: {}` (empty), all tools are discovered (default behavior)
+- This is useful for security: limit access to dangerous operations
+</Accordion>
+
+## Remote MCP Servers
+
+### Using mcp-remote
+
+For servers that expose HTTP/SSE endpoints:
+
+```bash
+secure-mcp-gateway config add-server \
+  --config-name "default_config" \
+  --server-name "remote-api" \
+  --server-command "npx" \
+  --args="-y,mcp-remote,https://api.example.com/mcp" \
+  --description "Remote MCP server via HTTP"
+```
+
+### With Custom Headers
+
+For remote servers requiring authentication headers:
+
+```json
+{
+  "server_name": "remote-authenticated",
+  "config": {
+    "command": "npx",
+    "args": [
+      "-y",
+      "mcp-remote",
+      "https://api.example.com/mcp",
+      "--header",
+      "Authorization: Bearer token123",
+      "--header",
+      "X-API-Key: your-api-key"
+    ]
+  }
+}
+```
+
+## OAuth-Enabled Servers
+
+For servers requiring OAuth 2.0/2.1 authentication, see the [OAuth Setup Guide](/guides/oauth-setup) for complete details.
+
+### Quick Example
+
+```json
+{
+  "server_name": "oauth-server",
+  "config": {
+    "command": "npx",
+    "args": ["-y", "mcp-remote", "https://api.example.com/mcp"]
+  },
+  "oauth_config": {
+    "enabled": true,
+    "is_remote": true,
+    "OAUTH_VERSION": "2.1",
+    "OAUTH_GRANT_TYPE": "client_credentials",
+    "OAUTH_CLIENT_ID": "your-client-id",
+    "OAUTH_CLIENT_SECRET": "your-client-secret",
+    "OAUTH_TOKEN_URL": "https://auth.example.com/oauth/token",
+    "OAUTH_AUDIENCE": "https://api.example.com"
+  }
+}
+```
+
+## Server Management
+
+### List All Servers in a Config
+
+```bash
+secure-mcp-gateway config list-servers --config-name "production-config"
+```
+
+### Get Server Details
+
+```bash
+secure-mcp-gateway config get-server \
+  --config-name "production-config" \
+  --server-name "github"
+```
+
+### Update Server Configuration
+
+```bash
+# Update command and args
+secure-mcp-gateway config update-server \
+  --config-name "production-config" \
+  --server-name "github" \
+  --server-command "node" \
+  --args="github-server.js"
+
+# Update environment variables
+secure-mcp-gateway config update-server \
+  --config-name "production-config" \
+  --server-name "database-server" \
+  --env '{"DB_HOST": "db.production.com", "DB_PORT": "5433"}'
+
+# Update tool restrictions
+secure-mcp-gateway config update-server \
+  --config-name "default_config" \
+  --server-name "tools-server" \
+  --tools '{"dangerous_tool": {"enabled": false}}'
+```
+
+### Remove a Server
+
+```bash
+secure-mcp-gateway config remove-server \
+  --config-name "production-config" \
+  --server-name "old-server"
+```
+
+## Verification
+
+### Test Server Connection
+
+After adding a server, verify it's working by discovering tools:
+
+<Steps>
+  <Step title="Restart Claude Desktop">
+    Close and reopen Claude Desktop to load the updated configuration.
+  </Step>
+  
+  <Step title="List all servers">
+    In Claude, ask:
+    ```
+    List all available MCP servers
+    ```
+    Your new server should appear in the list.
+  </Step>
+  
+  <Step title="Discover tools">
+    Ask Claude to:
+    ```
+    Discover all tools from [your-server-name]
+    ```
+    This tests the server's ability to respond to tool discovery requests.
+  </Step>
+  
+  <Step title="Test a tool">
+    Try executing a simple tool:
+    ```
+    Use [tool-name] from [server-name] to [perform action]
+    ```
+  </Step>
+</Steps>
+
+### Check Gateway Logs
+
+For debugging, check the gateway logs in the Claude Desktop log directory:
+
+**macOS:**
+```bash
+tail -f ~/Library/Logs/Claude/mcp*.log
+```
+
+**Windows:**
+```powershell
+Get-Content "$env:APPDATA\Claude\logs\mcp*.log" -Wait
+```
+
+## Troubleshooting
+
+### Server Not Appearing
+
+<AccordionGroup>
+  <Accordion title="Check config file syntax">
+    Validate your configuration:
+    ```bash
+    secure-mcp-gateway config validate --config-name "your-config"
+    ```
+  </Accordion>
+
+  <Accordion title="Verify server command is accessible">
+    Test the command manually:
+    ```bash
+    # For NPX servers
+    npx -y @modelcontextprotocol/server-github --version
+    
+    # For Python servers
+    python server.py --help
+    ```
+  </Accordion>
+
+  <Accordion title="Check environment variables">
+    Ensure required environment variables are set in the server config:
+    ```bash
+    secure-mcp-gateway config get-server \
+      --config-name "config" \
+      --server-name "server"
+    ```
+  </Accordion>
+
+  <Accordion title="Restart Claude Desktop">
+    Configuration changes require a restart:
+    - Close Claude Desktop completely
+    - Wait 5 seconds
+    - Reopen Claude Desktop
+  </Accordion>
+</AccordionGroup>
+
+### Tool Discovery Fails
+
+- **Check server logs**: Look for error messages in the MCP logs
+- **Test independently**: Run the server outside the gateway to verify it works
+- **Verify transport**: Ensure server supports stdio transport
+- **Check permissions**: Verify file paths and execute permissions
+
+### Authentication Errors
+
+- **API keys**: Verify environment variables contain valid keys
+- **OAuth**: Check client credentials and token URL
+- **Tokens**: Ensure tokens haven't expired
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Descriptive Names" icon="tag">
+    Name servers clearly: `github-prod`, `database-dev`, `search-staging`
+  </Card>
+  
+  <Card title="Document Dependencies" icon="book">
+    Include installation instructions in the description field
+  </Card>
+  
+  <Card title="Separate Environments" icon="layer-group">
+    Use different configs for dev/staging/production
+  </Card>
+  
+  <Card title="Restrict Tools" icon="shield-halved">
+    Limit tool access to only what's needed for security
+  </Card>
+  
+  <Card title="Use Environment Variables" icon="key">
+    Never hardcode credentials; always use env vars
+  </Card>
+  
+  <Card title="Test Before Deployment" icon="flask">
+    Validate servers in development configs first
+  </Card>
+</CardGroup>
+
+## Example: Complete Production Setup
+
+Here's a complete example of a production configuration with multiple servers:
+
+```bash
+# 1. Create production config
+secure-mcp-gateway config add --config-name "production"
+
+# 2. Add GitHub server
+secure-mcp-gateway config add-server \
+  --config-name "production" \
+  --server-name "github" \
+  --server-command "npx" \
+  --args="-y,@modelcontextprotocol/server-github" \
+  --env '{"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_prod_token"}' \
+  --description "GitHub integration for prod"
+
+# 3. Add search server with tool restrictions
+secure-mcp-gateway config add-server \
+  --config-name "production" \
+  --server-name "search" \
+  --server-command "npx" \
+  --args="-y,@modelcontextprotocol/server-brave-search" \
+  --env '{"BRAVE_API_KEY": "prod_search_key"}' \
+  --tools '{"search": {"enabled": true}, "summarize": {"enabled": true}}' \
+  --description "Search with limited tools"
+
+# 4. Add database server
+secure-mcp-gateway config add-server \
+  --config-name "production" \
+  --server-name "database" \
+  --server-command "python" \
+  --args="/opt/mcp/db_server.py" \
+  --env '{
+    "DB_HOST": "db.prod.company.com",
+    "DB_PORT": "5432",
+    "DB_NAME": "production",
+    "READ_ONLY": "true"
+  }' \
+  --description "Production database (read-only)"
+
+# 5. Validate configuration
+secure-mcp-gateway config validate --config-name "production"
+
+# 6. Create project and assign config
+secure-mcp-gateway project create --project-name "Production"
+secure-mcp-gateway project assign-config \
+  --project-name "Production" \
+  --config-name "production"
+
+# 7. Create users and generate API keys
+secure-mcp-gateway user create --email "engineer@company.com"
+secure-mcp-gateway project add-user \
+  --project-name "Production" \
+  --email "engineer@company.com"
+secure-mcp-gateway user generate-api-key \
+  --email "engineer@company.com" \
+  --project-name "Production"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configure Guardrails" icon="shield-check" href="/guides/configuring-guardrails">
+    Add input/output protection to your servers
+  </Card>
+  
+  <Card title="OAuth Setup" icon="lock" href="/guides/oauth-setup">
+    Configure OAuth authentication for remote servers
+  </Card>
+  
+  <Card title="External Cache" icon="database" href="/guides/external-cache">
+    Set up Redis/KeyDB for improved performance
+  </Card>
+  
+  <Card title="Custom Plugins" icon="plug" href="/guides/custom-plugins">
+    Create your own auth and guardrail plugins
+  </Card>
+</CardGroup>

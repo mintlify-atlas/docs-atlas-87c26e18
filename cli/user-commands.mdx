@@ -1,0 +1,584 @@
+---
+title: 'User Commands'
+description: 'Manage users, API keys, and access control'
+icon: 'users'
+---
+
+## Overview
+
+User commands manage user accounts and their API keys. Users can be members of multiple projects, with separate API keys for each project.
+
+## User Management
+
+### List Users
+
+List all users in the system.
+
+```bash
+secure-mcp-gateway user list
+```
+
+<ResponseExample>
+```json
+[
+  {
+    "user_id": "6469a670-1d64-4da5-b2b3-790de21ac726",
+    "email": "user@example.com",
+    "created_at": "2025-07-16T17:02:00.406902",
+    "projects": [
+      {
+        "project_id": "3c09f06c-1f0d-4153-9ac5-366397937641",
+        "project_name": "Production Project"
+      }
+    ],
+    "api_keys": 2
+  }
+]
+```
+</ResponseExample>
+
+### Create User
+
+Create a new user with email address.
+
+```bash
+secure-mcp-gateway user create --email "newuser@example.com"
+```
+
+<ParamField path="email" type="string" required>
+  Valid email address (must be unique)
+</ParamField>
+
+<ResponseExample>
+```
+user_id: 6469a670-1d64-4da5-b2b3-790de21ac726
+```
+</ResponseExample>
+
+<Note>
+Email validation ensures proper format: `user@domain.com`
+</Note>
+
+### Get User
+
+Retrieve detailed information about a user.
+
+```bash
+# By email
+secure-mcp-gateway user get --email "user@example.com"
+
+# By user ID
+secure-mcp-gateway user get --user-id "6469a670-1d64-4da5-b2b3-790de21ac726"
+```
+
+<ParamField path="email" type="string">
+  User email address
+</ParamField>
+
+<ParamField path="user-id" type="string">
+  User UUID
+</ParamField>
+
+<ResponseExample>
+```json
+{
+  "user_id": "6469a670-1d64-4da5-b2b3-790de21ac726",
+  "email": "user@example.com",
+  "created_at": "2025-07-16T17:02:00.406902",
+  "projects": [
+    {
+      "project_id": "3c09f06c-1f0d-4153-9ac5-366397937641",
+      "project_name": "Production Project"
+    }
+  ],
+  "api_keys": [
+    {
+      "api_key": "TJTWRRt226cfYBvqpLEJ...",
+      "project_id": "3c09f06c-1f0d-4153-9ac5-366397937641",
+      "project_name": "Production Project",
+      "created_at": "2025-07-16T17:02:00.406905"
+    }
+  ]
+}
+```
+</ResponseExample>
+
+### Update User
+
+Update user's email address.
+
+```bash
+secure-mcp-gateway user update \
+  --email "old@example.com" \
+  --new-email "new@example.com"
+```
+
+<ParamField path="email" type="string" required>
+  Current email address or user ID
+</ParamField>
+
+<ParamField path="new-email" type="string" required>
+  New email address (must be unique)
+</ParamField>
+
+### Delete User
+
+Delete a user from the system.
+
+```bash
+# Standard delete (requires no API keys)
+secure-mcp-gateway user delete --email "user@example.com"
+
+# Force delete with cleanup
+secure-mcp-gateway user delete --email "user@example.com" --force
+```
+
+<ParamField path="email" type="string" required>
+  User email or ID
+</ParamField>
+
+<ParamField path="force" type="flag">
+  Force deletion and remove all API keys and project memberships
+</ParamField>
+
+<Warning>
+Standard delete fails if user has active API keys. Use `--force` to delete everything, or manually delete API keys first.
+</Warning>
+
+## User Relationships
+
+### List User Projects
+
+List all projects a user belongs to.
+
+```bash
+secure-mcp-gateway user list-projects --email "user@example.com"
+```
+
+<ResponseExample>
+```json
+[
+  {
+    "project_id": "3c09f06c-1f0d-4153-9ac5-366397937641",
+    "project_name": "Production Project",
+    "api_keys": 1,
+    "mcp_config": {
+      "mcp_config_id": "fcbd4508-1432-4f13-abb9-c495c946f638",
+      "mcp_config_name": "prod-config"
+    }
+  }
+]
+```
+</ResponseExample>
+
+## API Key Management
+
+### Generate API Key
+
+Create a new API key for a user in a specific project.
+
+```bash
+secure-mcp-gateway user generate-api-key \
+  --email "user@example.com" \
+  --project-name "Production Project"
+```
+
+<ParamField path="email" type="string" required>
+  User email or ID
+</ParamField>
+
+<ParamField path="project-name" type="string" required>
+  Project name or ID
+</ParamField>
+
+<ResponseExample>
+```json
+{
+  "api_key": "TJTWRRt226cfYBvqpLEJPrYZUF8BDWLakmMF2PCOhOvpa1Up",
+  "user_id": "6469a670-1d64-4da5-b2b3-790de21ac726",
+  "project_id": "3c09f06c-1f0d-4153-9ac5-366397937641",
+  "created_at": "2025-07-16T18:45:00.000000"
+}
+```
+</ResponseExample>
+
+<Note>
+API keys are 48-character URL-safe base64 strings. Store them securely.
+</Note>
+
+### List API Keys
+
+List API keys for a user.
+
+```bash
+# All keys for a user
+secure-mcp-gateway user list-api-keys --email "user@example.com"
+
+# Keys for a user in specific project
+secure-mcp-gateway user list-api-keys \
+  --email "user@example.com" \
+  --project-name "Production Project"
+```
+
+<ResponseExample>
+```json
+[
+  {
+    "api_key": "TJTWRRt226cfYBvqpLEJPrYZUF8BDWLakmMF2PCOhOvpa1Up",
+    "project_id": "3c09f06c-1f0d-4153-9ac5-366397937641",
+    "project_name": "Production Project",
+    "created_at": "2025-07-16T17:02:00.406905",
+    "status": "active"
+  }
+]
+```
+</ResponseExample>
+
+### List All API Keys
+
+List all API keys across all users (admin operation).
+
+```bash
+secure-mcp-gateway user list-all-api-keys
+```
+
+### Get API Key Details
+
+Retrieve details about a specific API key.
+
+```bash
+secure-mcp-gateway user get-api-key --api-key "TJTWRRt226cfYBvqpLEJPrYZUF8BDWLakmMF2PCOhOvpa1Up"
+```
+
+<ResponseExample>
+```json
+{
+  "api_key": "TJTWRRt226cfYBvqpLEJPrYZUF8BDWLakmMF2PCOhOvpa1Up",
+  "user_id": "6469a670-1d64-4da5-b2b3-790de21ac726",
+  "email": "user@example.com",
+  "project_id": "3c09f06c-1f0d-4153-9ac5-366397937641",
+  "project_name": "Production Project",
+  "created_at": "2025-07-16T17:02:00.406905",
+  "status": "active"
+}
+```
+</ResponseExample>
+
+### Rotate API Key
+
+Generate a new API key and invalidate the old one.
+
+```bash
+secure-mcp-gateway user rotate-api-key --api-key "TJTWRRt226cfYBvqpLEJPrYZUF8BDWLakmMF2PCOhOvpa1Up"
+```
+
+<ResponseExample>
+```json
+{
+  "old_api_key": "TJTWRRt226cfYBvqpLEJ...",
+  "new_api_key": "XnBMk9f3hKd8sL2vRpQw...",
+  "user_id": "6469a670-1d64-4da5-b2b3-790de21ac726",
+  "project_id": "3c09f06c-1f0d-4153-9ac5-366397937641",
+  "rotated_at": "2025-07-16T19:00:00.000000"
+}
+```
+</ResponseExample>
+
+<Warning>
+Update all applications using the old key immediately after rotation.
+</Warning>
+
+### Disable API Key
+
+Temporarily disable an API key without deleting it.
+
+```bash
+secure-mcp-gateway user disable-api-key --api-key "TJTWRRt226cfYBvqpLEJPrYZUF8BDWLakmMF2PCOhOvpa1Up"
+```
+
+<Info>
+Disabled keys cannot authenticate but remain in the system for audit purposes.
+</Info>
+
+### Enable API Key
+
+Re-enable a previously disabled API key.
+
+```bash
+secure-mcp-gateway user enable-api-key --api-key "TJTWRRt226cfYBvqpLEJPrYZUF8BDWLakmMF2PCOhOvpa1Up"
+```
+
+### Delete API Key
+
+Permanently delete a specific API key.
+
+```bash
+secure-mcp-gateway user delete-api-key --api-key "TJTWRRt226cfYBvqpLEJPrYZUF8BDWLakmMF2PCOhOvpa1Up"
+```
+
+### Delete All API Keys
+
+Delete all API keys for a user.
+
+```bash
+secure-mcp-gateway user delete-all-api-keys --email "user@example.com"
+```
+
+<Warning>
+This will invalidate all active sessions for the user across all projects.
+</Warning>
+
+## Search
+
+### Search Users
+
+Search for users by email or project membership.
+
+```bash
+secure-mcp-gateway user search --search-term "admin"
+```
+
+<ParamField path="search-term" type="string" required>
+  Search term to match against emails and project names
+</ParamField>
+
+<ResponseExample>
+```json
+[
+  {
+    "user_id": "6469a670-1d64-4da5-b2b3-790de21ac726",
+    "email": "admin@example.com",
+    "match_type": "email",
+    "projects": 3,
+    "api_keys": 5
+  }
+]
+```
+</ResponseExample>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="API Key Security">
+    - **Never commit keys**: Don't include API keys in version control
+    - **Use environment variables**: Store keys in environment variables
+    - **Rotate regularly**: Rotate keys every 90 days
+    - **Principle of least privilege**: Generate separate keys per project
+    - **Monitor usage**: Track API key usage patterns
+    - **Quick revocation**: Be prepared to rotate/disable compromised keys
+  </Accordion>
+  
+  <Accordion title="User Management">
+    - **Corporate email**: Use company email addresses
+    - **Regular audits**: Review user list periodically
+    - **Prompt offboarding**: Remove access when users leave
+    - **Document ownership**: Maintain records of user responsibilities
+  </Accordion>
+  
+  <Accordion title="Access Control">
+    - **Project-based access**: Use projects to control access scope
+    - **Minimal permissions**: Only grant necessary project memberships
+    - **Temporary access**: Use disable/enable for temporary access needs
+    - **Audit trails**: Track API key creation and deletion
+  </Accordion>
+</AccordionGroup>
+
+## Common Workflows
+
+### New User Onboarding
+
+```bash
+# 1. Create user
+secure-mcp-gateway user create --email "newuser@example.com"
+
+# 2. Add to projects
+secure-mcp-gateway project add-user \
+  --project-name "Team Project" \
+  --email "newuser@example.com"
+
+# 3. Generate API keys
+secure-mcp-gateway user generate-api-key \
+  --email "newuser@example.com" \
+  --project-name "Team Project"
+
+# 4. Verify setup
+secure-mcp-gateway user get --email "newuser@example.com"
+```
+
+### Rotate All Keys for a User
+
+```bash
+#!/bin/bash
+# rotate_user_keys.sh
+
+EMAIL="user@example.com"
+
+# Get all API keys
+KEYS=$(secure-mcp-gateway user list-api-keys --email "$EMAIL" | jq -r '.[].api_key')
+
+# Rotate each key
+for KEY in $KEYS; do
+  echo "Rotating key: ${KEY:0:20}..."
+  secure-mcp-gateway user rotate-api-key --api-key "$KEY"
+done
+
+echo "All keys rotated for $EMAIL"
+```
+
+### Emergency Key Revocation
+
+```bash
+# If a key is compromised:
+
+# 1. Immediately disable the key
+secure-mcp-gateway user disable-api-key --api-key "COMPROMISED_KEY"
+
+# 2. Generate new key
+secure-mcp-gateway user generate-api-key \
+  --email "user@example.com" \
+  --project-name "Project Name"
+
+# 3. Update application with new key
+# (Manual step)
+
+# 4. Delete old key
+secure-mcp-gateway user delete-api-key --api-key "COMPROMISED_KEY"
+
+# 5. Document incident
+echo "Key revoked at $(date)" >> security_log.txt
+```
+
+### User Offboarding
+
+```bash
+#!/bin/bash
+# offboard_user.sh
+
+EMAIL="leaving@example.com"
+
+echo "Offboarding user: $EMAIL"
+
+# 1. List user's projects and keys
+echo "User's projects:"
+secure-mcp-gateway user list-projects --email "$EMAIL"
+
+echo "User's API keys:"
+secure-mcp-gateway user list-api-keys --email "$EMAIL"
+
+# 2. Delete all API keys
+echo "Deleting all API keys..."
+secure-mcp-gateway user delete-all-api-keys --email "$EMAIL"
+
+# 3. Get project list
+PROJECTS=$(secure-mcp-gateway user list-projects --email "$EMAIL" | jq -r '.[].project_name')
+
+# 4. Remove from all projects
+for PROJECT in $PROJECTS; do
+  echo "Removing from project: $PROJECT"
+  secure-mcp-gateway project remove-user \
+    --project-name "$PROJECT" \
+    --email "$EMAIL"
+done
+
+# 5. Delete user
+echo "Deleting user account..."
+secure-mcp-gateway user delete --email "$EMAIL" --force
+
+echo "Offboarding complete for $EMAIL"
+```
+
+### Audit User Access
+
+```bash
+#!/bin/bash
+# audit_users.sh
+
+echo "User Access Audit - $(date)"
+echo "================================"
+
+# Get all users
+USERS=$(secure-mcp-gateway user list | jq -r '.[].email')
+
+for EMAIL in $USERS; do
+  echo ""
+  echo "User: $EMAIL"
+  echo "---"
+  
+  # Count projects
+  PROJECT_COUNT=$(secure-mcp-gateway user list-projects --email "$EMAIL" | jq 'length')
+  echo "Projects: $PROJECT_COUNT"
+  
+  # Count API keys
+  KEY_COUNT=$(secure-mcp-gateway user list-api-keys --email "$EMAIL" | jq 'length')
+  echo "API Keys: $KEY_COUNT"
+  
+  # List projects
+  echo "Project memberships:"
+  secure-mcp-gateway user list-projects --email "$EMAIL" | jq -r '.[].project_name' | sed 's/^/  - /'
+done
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Cannot delete user - has active API keys">
+    **Error:** "User has X active API keys"
+    
+    **Solution:**
+    ```bash
+    # Option 1: Delete keys manually
+    secure-mcp-gateway user delete-all-api-keys --email "user@example.com"
+    secure-mcp-gateway user delete --email "user@example.com"
+    
+    # Option 2: Force delete
+    secure-mcp-gateway user delete --email "user@example.com" --force
+    ```
+  </Accordion>
+  
+  <Accordion title="Email already exists">
+    **Error:** "User with email already exists"
+    
+    **Solution:** Use a different email or retrieve the existing user.
+    ```bash
+    secure-mcp-gateway user get --email "existing@example.com"
+    ```
+  </Accordion>
+  
+  <Accordion title="Cannot generate API key - user not in project">
+    **Error:** "User not found in project"
+    
+    **Solution:**
+    ```bash
+    # Add user to project first
+    secure-mcp-gateway project add-user \
+      --project-name "Project Name" \
+      --email "user@example.com"
+    
+    # Then generate key
+    secure-mcp-gateway user generate-api-key \
+      --email "user@example.com" \
+      --project-name "Project Name"
+    ```
+  </Accordion>
+  
+  <Accordion title="API key not working">
+    **Possible causes:**
+    - Key was disabled or deleted
+    - Key not set in environment variable
+    - Wrong project configuration
+    
+    **Solution:**
+    ```bash
+    # Check key status
+    secure-mcp-gateway user get-api-key --api-key "YOUR_KEY"
+    
+    # Verify environment variable
+    echo $ENKRYPT_GATEWAY_KEY
+    
+    # Generate new key if needed
+    secure-mcp-gateway user generate-api-key \
+      --email "user@example.com" \
+      --project-name "Project Name"
+    ```
+  </Accordion>
+</AccordionGroup>

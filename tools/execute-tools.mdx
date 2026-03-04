@@ -1,0 +1,615 @@
+---
+title: Execute Tools Securely
+description: Use enkrypt_secure_call_tools to execute MCP server tools with comprehensive security guardrails and PII protection.
+---
+
+## Overview
+
+The `enkrypt_secure_call_tools` tool provides secure batch execution of MCP server tools with comprehensive guardrail checks, PII handling, and detailed response tracking.
+
+<Warning>
+This is the **only** recommended way to execute tools from MCP servers through the gateway. Direct server access bypasses security protections.
+</Warning>
+
+## Tool Signature
+
+```python
+async def enkrypt_secure_call_tools(
+    ctx: Context,
+    server_name: str,
+    tool_calls: list = []
+) -> dict
+```
+
+### Parameters
+
+<ParamField path="ctx" type="Context" required>
+  MCP context (automatically provided by the client)
+</ParamField>
+
+<ParamField path="server_name" type="str" required>
+  Name of the server containing the tools to execute
+</ParamField>
+
+<ParamField path="tool_calls" type="list" default="[]">
+  List of tool calls to execute. Each item should be an object with:
+  
+  <Expandable title="tool_call object structure">
+    <ParamField path="name" type="string" required>
+      Name of the tool to call
+    </ParamField>
+    
+    <ParamField path="args" type="object" required>
+      Arguments to pass to the tool
+    </ParamField>
+  </Expandable>
+  
+  **Special behavior:**
+  - Empty list `[]`: Triggers tool discovery only (no execution)
+  - Single item: Executes one tool
+  - Multiple items: Executes all tools in sequence within the same session
+</ParamField>
+
+<Info>
+**Important:** If you need to execute multiple tools, pass them all in a single list. Multiple separate calls will create new sessions each time, which may fail or be inefficient.
+</Info>
+
+### Return Value
+
+<ResponseField name="status" type="string" required>
+  Overall status: `"success"`, `"error"`, `"blocked_input"`, or `"blocked_output"`
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable description of the execution result
+</ResponseField>
+
+<ResponseField name="results" type="array">
+  Array of individual tool execution results
+</ResponseField>
+
+<ResponseField name="execution_summary" type="object">
+  Summary statistics about the batch execution
+  
+  <Expandable title="execution_summary properties">
+    <ResponseField name="total_calls" type="integer">
+      Total number of tool calls requested
+    </ResponseField>
+    
+    <ResponseField name="successful_calls" type="integer">
+      Number of successful executions
+    </ResponseField>
+    
+    <ResponseField name="failed_calls" type="integer">
+      Number of failed executions
+    </ResponseField>
+    
+    <ResponseField name="blocked_input_calls" type="integer">
+      Number of calls blocked by input guardrails
+    </ResponseField>
+    
+    <ResponseField name="blocked_output_calls" type="integer">
+      Number of calls blocked by output guardrails
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Usage Examples
+
+### Execute a Single Tool
+
+<CodeGroup>
+
+```text Claude Chat
+User: Create an issue in my repository titled "Bug in login page"
+
+Claude: I'll create an issue in your GitHub repository.
+[Uses enkrypt_secure_call_tools]
+
+Success! Created issue #42 in your repository.
+```
+
+```python Python SDK
+result = await session.call_tool(
+    "enkrypt_secure_call_tools",
+    arguments={
+        "server_name": "github",
+        "tool_calls": [
+            {
+                "name": "create_issue",
+                "args": {
+                    "repo": "myuser/myrepo",
+                    "title": "Bug in login page",
+                    "body": "Login fails with email addresses"
+                }
+            }
+        ]
+    }
+)
+
+if result["status"] == "success":
+    print(f"Issue created: {result['results'][0]['response']}")
+```
+
+</CodeGroup>
+
+### Execute Multiple Tools in Sequence
+
+<CodeGroup>
+
+```text Claude Chat
+User: Create a new repository called "test-repo" and add a README file to it
+
+Claude: I'll create the repository and add a README.
+[Uses enkrypt_secure_call_tools with 2 tool calls]
+
+1. Created repository "test-repo"
+2. Added README.md file
+
+Both operations completed successfully!
+```
+
+```python Python SDK
+result = await session.call_tool(
+    "enkrypt_secure_call_tools",
+    arguments={
+        "server_name": "github",
+        "tool_calls": [
+            {
+                "name": "create_repository",
+                "args": {
+                    "name": "test-repo",
+                    "description": "Test repository"
+                }
+            },
+            {
+                "name": "create_file",
+                "args": {
+                    "repo": "myuser/test-repo",
+                    "path": "README.md",
+                    "content": "# Test Repository"
+                }
+            }
+        ]
+    }
+)
+
+for i, result in enumerate(result["results"]):
+    print(f"Call {i+1}: {result['status']}")
+```
+
+</CodeGroup>
+
+### Discovery Mode (No Execution)
+
+To discover tools without executing them:
+
+```python
+result = await session.call_tool(
+    "enkrypt_secure_call_tools",
+    arguments={
+        "server_name": "github",
+        "tool_calls": []  # Empty list triggers discovery
+    }
+)
+
+# Returns: {"status": "success", "tools": {...}}
+```
+
+## Response Structure
+
+### Successful Execution
+
+```json
+{
+  "status": "success",
+  "message": "Batch execution completed: 2 successful, 0 failed, 0 blocked (input), 0 blocked (output)",
+  "results": [
+    {
+      "status": "success",
+      "response": "Issue #42 created successfully",
+      "enkrypt_mcp_data": {
+        "call_index": 0,
+        "server_name": "github",
+        "tool_name": "create_issue",
+        "args": {...}
+      },
+      "input_guardrail_response": {
+        "is_safe": true,
+        "processing_time_ms": 45
+      },
+      "output_guardrail_response": {
+        "is_safe": true,
+        "processing_time_ms": 38
+      }
+    }
+  ],
+  "execution_summary": {
+    "total_calls": 2,
+    "successful_calls": 2,
+    "failed_calls": 0,
+    "blocked_input_calls": 0,
+    "blocked_output_calls": 0,
+    "input_guardrails_enabled": true,
+    "output_guardrails_enabled": true
+  }
+}
+```
+
+### Blocked by Input Guardrails
+
+```json
+{
+  "status": "error",
+  "message": "Batch execution failed: 0 successful, 0 failed, 1 blocked (input)",
+  "results": [
+    {
+      "status": "blocked_input",
+      "message": "Request blocked due to input guardrail violations: policy_violation, nsfw_content",
+      "response": "",
+      "enkrypt_mcp_data": {
+        "call_index": 0,
+        "server_name": "github",
+        "tool_name": "create_issue",
+        "args": {...}
+      },
+      "input_guardrail_response": {
+        "is_safe": false,
+        "violations": [
+          {
+            "type": "policy_violation",
+            "severity": "high",
+            "message": "Content violates acceptable use policy",
+            "action": "block"
+          },
+          {
+            "type": "nsfw_content",
+            "severity": "high",
+            "message": "NSFW content detected",
+            "action": "block"
+          }
+        ],
+        "processing_time_ms": 52
+      }
+    }
+  ]
+}
+```
+
+### Blocked by Output Guardrails
+
+```json
+{
+  "status": "error",
+  "message": "Batch execution failed: 0 successful, 0 failed, 0 blocked (input), 1 blocked (output)",
+  "results": [
+    {
+      "status": "blocked_output",
+      "message": "Response blocked due to output guardrail violations: policy_violation",
+      "response": "[Response blocked by guardrails]",
+      "enkrypt_mcp_data": {...},
+      "output_guardrail_response": {
+        "is_safe": false,
+        "violations": [
+          {
+            "type": "policy_violation",
+            "severity": "high",
+            "message": "Response contains policy-violating content"
+          }
+        ],
+        "processing_time_ms": 67
+      }
+    }
+  ]
+}
+```
+
+## Security Features
+
+### Input Guardrails
+
+Before executing tools, the gateway validates input arguments:
+
+<AccordionGroup>
+  <Accordion title="PII Detection & Redaction">
+    Automatically detects and redacts personally identifiable information:
+    
+    ```json
+    Input: {"email": "john.doe@example.com", "ssn": "123-45-6789"}
+    Redacted: {"email": "[EMAIL_REDACTED]", "ssn": "[SSN_REDACTED]"}
+    ```
+    
+    The original PII is stored securely and restored in the response.
+  </Accordion>
+  
+  <Accordion title="Content Safety">
+    Checks for:
+    - NSFW content
+    - Toxic language
+    - Hate speech
+    - Profanity
+  </Accordion>
+  
+  <Accordion title="Injection Prevention">
+    Detects and blocks:
+    - SQL injection attempts
+    - Command injection
+    - Prompt injection
+    - XSS attacks
+  </Accordion>
+  
+  <Accordion title="Policy Enforcement">
+    Validates against custom organizational policies:
+    - Topic restrictions
+    - Keyword blocking
+    - Business rules
+  </Accordion>
+</AccordionGroup>
+
+### Output Guardrails
+
+After execution, responses are validated:
+
+<AccordionGroup>
+  <Accordion title="All Input Checks">
+    All input guardrail checks are also applied to outputs.
+  </Accordion>
+  
+  <Accordion title="Relevancy Validation">
+    Ensures the response is relevant to the input:
+    
+    ```json
+    {
+      "relevancy_score": 0.85,
+      "threshold": 0.75,
+      "is_relevant": true
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Adherence Checking">
+    Verifies the response follows instructions:
+    
+    ```json
+    {
+      "adherence_score": 0.92,
+      "threshold": 0.80,
+      "adheres": true
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Hallucination Detection">
+    Identifies potentially fabricated information in responses.
+  </Accordion>
+  
+  <Accordion title="PII De-anonymization">
+    Automatically restores redacted PII in the response if the output is safe.
+  </Accordion>
+</AccordionGroup>
+
+### Async Guardrails
+
+For improved performance, guardrails can run asynchronously:
+
+```json Configuration
+{
+  "common_mcp_gateway_config": {
+    "enkrypt_async_input_guardrails_enabled": true,
+    "enkrypt_async_output_guardrails_enabled": true
+  }
+}
+```
+
+When enabled:
+- Input guardrails and tool execution run in parallel
+- Response is blocked if guardrails detect violations
+- Reduces total execution time by ~50%
+
+## Implementation Details
+
+### Service Location
+
+Implemented in: `src/secure_mcp_gateway/services/execution/secure_tool_execution_service.py:64`
+
+### Execution Flow
+
+1. **Authentication** - Validate gateway credentials
+2. **Server Lookup** - Find server configuration
+3. **Tool Discovery** - Ensure tools are available (cached or discovered)
+4. **Session Creation** - Open persistent session to server
+5. **For each tool call:**
+   - **Input Guardrails** - Validate input (if enabled)
+   - **PII Redaction** - Redact sensitive data (if enabled)
+   - **Tool Execution** - Call the actual tool
+   - **Output Guardrails** - Validate output (if enabled)
+   - **PII Restoration** - Restore redacted data (if safe)
+6. **Session Cleanup** - Close server connection
+7. **Summary** - Return execution results
+
+### Session Management
+
+<Info>
+All tool calls in a single request share the same server session. This is critical for stateful operations.
+</Info>
+
+```python
+# Single session for all calls
+async with session:
+    result1 = await call_tool("create_repo", ...)
+    result2 = await call_tool("add_file", ...)  # Same session
+```
+
+### Error Handling
+
+Execution stops on first error or block:
+
+```python
+tool_calls = [
+    {"name": "tool1", "args": {...}},  # ✓ Executes
+    {"name": "tool2", "args": {...}},  # ✗ Blocked by guardrails
+    {"name": "tool3", "args": {...}}   # ⊘ Never executed
+]
+```
+
+## Tool Annotations
+
+```python
+annotations={
+    "title": "Securely Call Tools",
+    "readOnlyHint": False,     # May modify state
+    "destructiveHint": True,   # Can be destructive
+    "idempotentHint": False,   # Results may vary
+    "openWorldHint": True      # Makes external API calls
+}
+```
+
+## Performance Optimization
+
+<CardGroup cols={2}>
+  <Card title="Batch Calls" icon="layer-group">
+    Execute multiple tools in one request to reuse the session.
+  </Card>
+  
+  <Card title="Async Guardrails" icon="bolt">
+    Enable async guardrails to run checks in parallel with execution.
+  </Card>
+  
+  <Card title="Cache Tools" icon="database">
+    Ensure tools are discovered and cached before execution.
+  </Card>
+  
+  <Card title="Timeout Tuning" icon="clock">
+    Adjust timeout settings for slow tools via gateway config.
+  </Card>
+</CardGroup>
+
+## Common Use Cases
+
+<AccordionGroup>
+  <Accordion title="Safe API Calls">
+    Execute external API calls with automatic PII protection:
+    
+    ```text
+    Send an email to john.doe@example.com with the meeting notes
+    ```
+    
+    The gateway redacts the email before sending to the server.
+  </Accordion>
+  
+  <Accordion title="Multi-step Workflows">
+    Execute complex workflows in a single session:
+    
+    ```text
+    1. Create a new database
+    2. Create tables
+    3. Insert sample data
+    ```
+  </Accordion>
+  
+  <Accordion title="Content Moderation">
+    Automatically filter inappropriate content:
+    
+    ```text
+    Post this message to the forum: [user input]
+    ```
+    
+    Toxic or NSFW content is blocked before posting.
+  </Accordion>
+  
+  <Accordion title="Policy Enforcement">
+    Enforce organizational policies on tool usage:
+    
+    ```text
+    Delete all files in the /important directory
+    ```
+    
+    Policy violations are blocked automatically.
+  </Accordion>
+</AccordionGroup>
+
+## Error Codes
+
+<AccordionGroup>
+  <Accordion title="TOOL_NOT_FOUND">
+    **Error**: Tool not found for this server
+    
+    **Solution**: Use `enkrypt_discover_all_tools` to see available tools
+  </Accordion>
+  
+  <Accordion title="TOOL_EXECUTION_FAILED">
+    **Error**: Tool execution failed
+    
+    **Causes**: Server error, invalid arguments, connectivity issues
+    
+    **Solution**: Check tool arguments and server logs
+  </Accordion>
+  
+  <Accordion title="GUARDRAIL_VALIDATION_FAILED">
+    **Error**: Input/output blocked by guardrails
+    
+    **Solution**: Review violation details in the response
+  </Accordion>
+  
+  <Accordion title="AUTH_INVALID_CREDENTIALS">
+    **Error**: Authentication failed
+    
+    **Solution**: Verify gateway key configuration
+  </Accordion>
+</AccordionGroup>
+
+## Configuration Reference
+
+Configure guardrails per-server in `enkrypt_mcp_config.json`:
+
+```json
+{
+  "server_name": "github",
+  "input_guardrails_policy": {
+    "enabled": true,
+    "policy_name": "Sample Airline Guardrail",
+    "additional_config": {
+      "pii_redaction": true
+    },
+    "block": [
+      "policy_violation",
+      "injection_attack",
+      "nsfw_content",
+      "toxic_content"
+    ]
+  },
+  "output_guardrails_policy": {
+    "enabled": true,
+    "policy_name": "Sample Airline Guardrail",
+    "additional_config": {
+      "relevancy": true,
+      "adherence": true,
+      "hallucination": true
+    },
+    "block": [
+      "policy_violation",
+      "nsfw_content"
+    ]
+  }
+}
+```
+
+## Related Tools
+
+<CardGroup cols={2}>
+  <Card title="List Servers" icon="server" href="/tools/list-servers">
+    See available servers to execute tools from
+  </Card>
+  
+  <Card title="Discover Tools" icon="magnifying-glass" href="/tools/discover-tools">
+    Find available tools before execution
+  </Card>
+  
+  <Card title="Timeout Metrics" icon="chart-line" href="/observability/metrics">
+    Monitor execution performance
+  </Card>
+  
+  <Card title="Guardrails Config" icon="shield-halved" href="/guides/configuring-guardrails">
+    Configure security policies
+  </Card>
+</CardGroup>

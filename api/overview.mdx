@@ -1,0 +1,345 @@
+---
+title: 'REST API Overview'
+description: 'Complete REST API for programmatic management of the Secure MCP Gateway'
+---
+
+## Introduction
+
+The Secure MCP Gateway provides a comprehensive REST API that exposes all CLI functionality through HTTP endpoints. This allows you to programmatically manage configurations, projects, users, and system operations.
+
+## Getting Started
+
+### Starting the API Server
+
+Start the REST API server using the CLI:
+
+```bash
+# Start with default settings (host: 0.0.0.0, port: 8001)
+secure-mcp-gateway system start-api
+
+# Start with custom host and port
+secure-mcp-gateway system start-api --host 127.0.0.1 --port 9000
+
+# Start with auto-reload for development
+secure-mcp-gateway system start-api --reload
+```
+
+### API Documentation
+
+Once the server is running, you can access:
+
+- **Interactive API Documentation**: `http://localhost:8001/docs`
+- **ReDoc Documentation**: `http://localhost:8001/redoc`
+- **OpenAPI Schema**: `http://localhost:8001/openapi.json`
+
+## Base URL
+
+All API endpoints are prefixed with:
+
+```
+http://localhost:8001/api/v1
+```
+
+## API Architecture
+
+### Framework
+
+The API is built using **FastAPI**, providing:
+
+- Automatic request validation
+- OpenAPI/Swagger documentation
+- High performance with async support
+- Type safety with Pydantic models
+
+### Transport
+
+- **Protocol**: HTTP/HTTPS
+- **Port**: 8001 (default)
+- **CORS**: Enabled for all origins
+- **Content-Type**: `application/json`
+
+## Authentication
+
+All API endpoints (except `/health`) require authentication using an **admin API key**.
+
+### Admin API Key
+
+The admin API key is automatically generated when you initialize the gateway configuration. It can be found in your configuration file:
+
+```json
+{
+  "admin_apikey": "your-admin-api-key-here",
+  ...
+}
+```
+
+### Authorization Header
+
+Include the admin API key in the `Authorization` header with Bearer token format:
+
+```
+Authorization: Bearer <your_admin_api_key>
+```
+
+### Example Request
+
+```bash
+curl -X GET "http://localhost:8001/api/v1/configs" \
+  -H "Authorization: Bearer your-admin-api-key-here" \
+  -H "Content-Type: application/json"
+```
+
+## Response Format
+
+All API responses follow a consistent structure.
+
+### Success Response
+
+```json
+{
+  "message": "Operation successful",
+  "data": {
+    // Response data here
+  },
+  "timestamp": "2024-01-01T00:00:00.000000"
+}
+```
+
+<ResponseField name="message" type="string" required>
+  Human-readable success message
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Response payload (varies by endpoint)
+</ResponseField>
+
+<ResponseField name="timestamp" type="string" required>
+  ISO 8601 timestamp of the response
+</ResponseField>
+
+### Error Response
+
+```json
+{
+  "error": "Error type",
+  "detail": "Detailed error message",
+  "timestamp": "2024-01-01T00:00:00.000000"
+}
+```
+
+<ResponseField name="error" type="string" required>
+  Error category or type
+</ResponseField>
+
+<ResponseField name="detail" type="string">
+  Detailed error description
+</ResponseField>
+
+<ResponseField name="timestamp" type="string" required>
+  ISO 8601 timestamp of the error
+</ResponseField>
+
+## HTTP Status Codes
+
+The API uses standard HTTP status codes:
+
+| Status Code | Description |
+|-------------|-------------|
+| `200` | Request successful |
+| `201` | Resource created successfully |
+| `400` | Bad request - invalid input data |
+| `401` | Unauthorized - missing or invalid API key |
+| `404` | Resource not found |
+| `500` | Internal server error |
+
+## Rate Limiting
+
+Currently, the API does not enforce rate limiting. For production deployments, consider implementing rate limiting at the infrastructure level (e.g., using a reverse proxy like NGINX).
+
+## Health Check
+
+The health check endpoint does not require authentication:
+
+```bash
+curl http://localhost:8001/health
+```
+
+**Response:**
+
+```json
+{
+  "message": "API server is healthy",
+  "data": {
+    "version": "2.1.2",
+    "config_path": "/home/user/.enkrypt/enkrypt_mcp_config.json"
+  },
+  "timestamp": "2024-01-01T00:00:00.000000"
+}
+```
+
+## API Sections
+
+The REST API is organized into the following sections:
+
+<Card title="Configuration Management" icon="gear" href="/api/configurations">
+  Manage MCP configurations and servers
+</Card>
+
+<Card title="Project Management" icon="folder" href="/api/projects">
+  Create and manage projects
+</Card>
+
+<Card title="User Management" icon="users" href="/api/users">
+  Manage users and their associations
+</Card>
+
+<Card title="API Key Management" icon="key" href="/api/api-keys">
+  Generate and manage user API keys
+</Card>
+
+<Card title="System Operations" icon="server" href="/api/system">
+  System health, backup, and restore operations
+</Card>
+
+## Quick Start Example
+
+Here's a complete workflow to set up a project with a user and API key:
+
+```bash
+# 1. Create a configuration
+curl -X POST "http://localhost:8001/api/v1/configs" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"config_name": "my-config"}'
+
+# 2. Add a server to the configuration
+curl -X POST "http://localhost:8001/api/v1/configs/my-config/servers" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "server_name": "github",
+    "server_command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "description": "GitHub MCP Server"
+  }'
+
+# 3. Create a project
+curl -X POST "http://localhost:8001/api/v1/projects" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"project_name": "my-project"}'
+
+# 4. Assign configuration to project
+curl -X POST "http://localhost:8001/api/v1/projects/my-project/assign-config" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"config_name": "my-config"}'
+
+# 5. Create a user
+curl -X POST "http://localhost:8001/api/v1/users" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com"}'
+
+# 6. Add user to project
+curl -X POST "http://localhost:8001/api/v1/projects/my-project/users" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com"}'
+
+# 7. Generate API key for user
+curl -X POST "http://localhost:8001/api/v1/users/user@example.com/api-keys" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"project_name": "my-project"}'
+```
+
+## Client Libraries
+
+While official SDKs are not yet available, you can easily integrate with the API using standard HTTP clients:
+
+### Python Example
+
+```python
+import requests
+
+class GatewayAPI:
+    def __init__(self, base_url="http://localhost:8001", admin_key=None):
+        self.base_url = base_url
+        self.headers = {
+            "Authorization": f"Bearer {admin_key}",
+            "Content-Type": "application/json"
+        }
+    
+    def list_configs(self):
+        response = requests.get(
+            f"{self.base_url}/api/v1/configs",
+            headers=self.headers
+        )
+        return response.json()
+    
+    def create_user(self, email):
+        response = requests.post(
+            f"{self.base_url}/api/v1/users",
+            headers=self.headers,
+            json={"email": email}
+        )
+        return response.json()
+
+# Usage
+api = GatewayAPI(admin_key="your-admin-key")
+configs = api.list_configs()
+print(configs)
+```
+
+### JavaScript/Node.js Example
+
+```javascript
+class GatewayAPI {
+  constructor(baseUrl = 'http://localhost:8001', adminKey) {
+    this.baseUrl = baseUrl;
+    this.headers = {
+      'Authorization': `Bearer ${adminKey}`,
+      'Content-Type': 'application/json'
+    };
+  }
+
+  async listConfigs() {
+    const response = await fetch(`${this.baseUrl}/api/v1/configs`, {
+      headers: this.headers
+    });
+    return response.json();
+  }
+
+  async createUser(email) {
+    const response = await fetch(`${this.baseUrl}/api/v1/users`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify({ email })
+    });
+    return response.json();
+  }
+}
+
+// Usage
+const api = new GatewayAPI('http://localhost:8001', 'your-admin-key');
+const configs = await api.listConfigs();
+console.log(configs);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/api/authentication">
+    Learn about API authentication and security
+  </Card>
+  <Card title="Configuration Endpoints" icon="gear" href="/api/configurations">
+    Explore configuration management endpoints
+  </Card>
+  <Card title="Project Endpoints" icon="folder" href="/api/projects">
+    Manage projects via API
+  </Card>
+  <Card title="User Endpoints" icon="user" href="/api/users">
+    User and access management
+  </Card>
+</CardGroup>

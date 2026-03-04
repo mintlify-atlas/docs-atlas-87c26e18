@@ -1,0 +1,904 @@
+---
+title: 'Deployment Patterns'
+description: 'Production deployment architectures and scaling strategies'
+icon: 'diagram-project'
+---
+
+## Overview
+
+The Secure MCP Gateway supports multiple deployment patterns to meet different scalability, availability, and security requirements. This guide covers common architectures from single-instance local deployments to distributed cloud deployments.
+
+## Architecture Patterns
+
+### 1. Local Development
+
+**Use Case**: Development, testing, personal use
+
+```
+┌─────────────────┐
+│  MCP Client     │ (Claude Desktop, Cursor)
+│  (stdio)        │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  Gateway        │ (localhost)
+│  (pip install)  │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  MCP Servers    │ (local processes)
+│  (stdio/http)   │
+└─────────────────┘
+```
+
+**Characteristics**:
+- Single machine deployment
+- Stdio transport for client communication
+- Local in-memory cache
+- Ideal for: Development, testing, single-user scenarios
+
+**Setup**:
+```bash
+# Install with pip
+pip install secure-mcp-gateway
+secure-mcp-gateway generate-config
+secure-mcp-gateway install --client claude-desktop
+```
+
+<Info>
+  This is the simplest deployment pattern. Configuration is stored locally at `~/.enkrypt/enkrypt_mcp_config.json`.
+</Info>
+
+---
+
+### 2. Docker Single Instance
+
+**Use Case**: Production single-server, consistent environment
+
+```
+┌─────────────────┐
+│  MCP Client     │
+│  (stdio)        │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────────────────────┐
+│  Docker Container               │
+│  ┌─────────────────────────┐   │
+│  │  Gateway                │   │
+│  └─────────────────────────┘   │
+│  ┌─────────────────────────┐   │
+│  │  Config Volume          │   │
+│  │  ~/.enkrypt/docker      │   │
+│  └─────────────────────────┘   │
+└────────┬────────────────────────┘
+         │
+         ▼
+┌─────────────────┐
+│  MCP Servers    │
+└─────────────────┘
+```
+
+**Characteristics**:
+- Containerized gateway with volume-mounted config
+- Includes Python 3.12, Node.js 22.x runtime
+- Supports both Python and JavaScript MCP servers
+- Local cache within container
+
+**Setup**:
+```bash
+# Build image
+docker build -t secure-mcp-gateway .
+
+# Generate config
+docker run --rm \
+  -v ~/.enkrypt/docker:/app/.enkrypt/docker \
+  --entrypoint python \
+  secure-mcp-gateway \
+  -m secure_mcp_gateway.cli generate-config
+
+# Run gateway
+docker run -d \
+  --name secure-mcp-gateway \
+  -p 8000:8000 \
+  -v ~/.enkrypt/docker:/app/.enkrypt/docker \
+  -e ENKRYPT_GATEWAY_KEY="..." \
+  secure-mcp-gateway
+```
+
+---
+
+### 3. Docker Compose with Observability
+
+**Use Case**: Production with monitoring, debugging, team deployments
+
+```
+┌─────────────────┐
+│  MCP Client     │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────┐
+│  Docker Compose Stack                           │
+│                                                 │
+│  ┌──────────┐    ┌──────────────────────┐     │
+│  │ Gateway  │───▶│ OpenTelemetry        │     │
+│  │ (Port    │    │ Collector            │     │
+│  │  8000)   │    │ (OTLP 4317, 4318)    │     │
+│  └──────────┘    └───┬──────────┬───────┘     │
+│                      │          │             │
+│       ┌──────────────┴─┐    ┌───┴──────────┐  │
+│       │  Jaeger        │    │  Loki        │  │
+│       │  (Traces)      │    │  (Logs)      │  │
+│       │  Port 16686    │    │  Port 3100   │  │
+│       └────────┬───────┘    └───┬──────────┘  │
+│                │                │             │
+│                │    ┌───────────┴───┐         │
+│                │    │  Prometheus   │         │
+│                │    │  (Metrics)    │         │
+│                │    │  Port 9090    │         │
+│                │    └───────┬───────┘         │
+│                │            │                 │
+│                └────────────┼─────────────┐   │
+│                             ▼             │   │
+│                      ┌──────────────┐     │   │
+│                      │   Grafana    │     │   │
+│                      │  (Dashboards)│     │   │
+│                      │   Port 3000  │     │   │
+│                      └──────────────┘     │   │
+└─────────────────────────────────────────────────┘
+```
+
+**Characteristics**:
+- Complete observability stack
+- Distributed tracing with Jaeger
+- Log aggregation with Loki
+- Metrics with Prometheus
+- Unified dashboards in Grafana
+- Inter-service communication via Docker network
+
+**Setup**:
+```bash
+# Navigate to infrastructure directory
+cd infra
+
+# Start all services
+docker compose up -d
+
+# Access dashboards
+# Grafana: http://localhost:3000
+# Jaeger: http://localhost:16686
+# Prometheus: http://localhost:9090
+```
+
+**Observability Features**:
+<CardGroup cols={2}>
+  <Card title="Distributed Tracing" icon="route">
+    Track requests across gateway, clients, and MCP servers. Visualize latency bottlenecks.
+  </Card>
+  <Card title="Log Aggregation" icon="scroll">
+    Centralized logs from all services. Query with LogQL, correlate with traces.
+  </Card>
+  <Card title="Metrics Monitoring" icon="chart-line">
+    Request rates, error rates, cache hit ratios, timeout metrics, OAuth metrics.
+  </Card>
+  <Card title="Grafana Dashboards" icon="chart-mixed">
+    Pre-configured dashboards for gateway health, performance, and security insights.
+  </Card>
+</CardGroup>
+
+---
+
+### 4. Distributed with External Cache
+
+**Use Case**: Multi-instance deployments, high availability, load balancing
+
+```
+┌──────────┐  ┌──────────┐  ┌──────────┐
+│  Client  │  │  Client  │  │  Client  │
+│    A     │  │    B     │  │    C     │
+└────┬─────┘  └────┬─────┘  └────┬─────┘
+     │             │             │
+     └─────────────┼─────────────┘
+                   │
+                   ▼
+          ┌────────────────┐
+          │  Load Balancer │
+          └───────┬────────┘
+                  │
+      ┌───────────┼───────────┐
+      │           │           │
+      ▼           ▼           ▼
+┌──────────┐┌──────────┐┌──────────┐
+│ Gateway  ││ Gateway  ││ Gateway  │
+│ Instance ││ Instance ││ Instance │
+│    1     ││    2     ││    3     │
+└─────┬────┘└─────┬────┘└─────┬────┘
+      │           │           │
+      └───────────┼───────────┘
+                  ▼
+         ┌─────────────────┐
+         │  Redis/KeyDB    │
+         │  External Cache │
+         └─────────────────┘
+                  │
+      ┌───────────┼───────────┐
+      ▼           ▼           ▼
+┌──────────┐┌──────────┐┌──────────┐
+│   MCP    ││   MCP    ││   MCP    │
+│ Server A ││ Server B ││ Server C │
+└──────────┘└──────────┘└──────────┘
+```
+
+**Characteristics**:
+- Multiple gateway instances behind load balancer
+- Shared Redis/KeyDB for distributed caching
+- Session affinity not required (stateless gateway)
+- Horizontal scaling for high throughput
+- Fault tolerance via redundancy
+
+**Configuration**:
+
+```json enkrypt_mcp_config.json
+{
+  "common_mcp_gateway_config": {
+    "enkrypt_mcp_use_external_cache": true,
+    "enkrypt_cache_host": "redis.internal.example.com",
+    "enkrypt_cache_port": 6379,
+    "enkrypt_cache_db": 0,
+    "enkrypt_cache_password": "your_redis_password",
+    "enkrypt_tool_cache_expiration": 4,
+    "enkrypt_gateway_cache_expiration": 24
+  }
+}
+```
+
+**Cache Keys** (MD5 hashed for security):
+- Tool cache: `mcp_tools:{config_id}:{server_name}`
+- Gateway config: `mcp_gateway_config:{config_id}`
+- API key mapping: `mcp_key_to_id:{gateway_key}`
+
+**Scaling Considerations**:
+<Steps>
+  <Step title="Cache Sizing">
+    Estimate cache size based on:
+    - Number of MCP servers: `N`
+    - Average tools per server: `T`
+    - Cache entry size: ~1-5 KB per server
+    - Total: `N * (T * 1KB + 5KB config)`
+
+    Example: 100 servers, 20 tools each = ~500 KB cache
+  </Step>
+
+  <Step title="Redis Configuration">
+    Recommended Redis/KeyDB settings:
+    ```conf
+    maxmemory 1gb
+    maxmemory-policy allkeys-lru
+    save ""
+    appendonly yes
+    tcp-keepalive 60
+    ```
+  </Step>
+
+  <Step title="Load Balancer Setup">
+    - Use HTTP health check: `GET /health` (port 8000)
+    - No session affinity needed (stateless)
+    - Timeout: 30s (or `default_timeout` from config)
+    - Round-robin or least-connections algorithm
+  </Step>
+</Steps>
+
+---
+
+### 5. Remote Gateway Deployment
+
+**Use Case**: Centralized gateway, remote MCP clients, cloud deployment
+
+```
+┌────────────────────────────────────────┐
+│  Local Environment                      │
+│  ┌──────────┐  ┌──────────┐           │
+│  │  Claude  │  │  Cursor  │           │
+│  │ Desktop  │  │          │           │
+│  └────┬─────┘  └────┬─────┘           │
+│       │             │                  │
+└───────┼─────────────┼──────────────────┘
+        │             │
+        │   HTTPS     │
+        │   (TLS)     │
+        ▼             ▼
+┌─────────────────────────────────────────┐
+│  Cloud Environment (AWS/GCP/Azure)      │
+│                                         │
+│  ┌───────────────────────────────────┐ │
+│  │  Load Balancer (TLS Termination)  │ │
+│  └──────────────┬────────────────────┘ │
+│                 │                       │
+│        ┌────────┼────────┐             │
+│        ▼        ▼        ▼             │
+│   ┌────────┬────────┬────────┐        │
+│   │Gateway │Gateway │Gateway │        │
+│   │   1    │   2    │   3    │        │
+│   └───┬────┴───┬────┴───┬────┘        │
+│       │        │        │              │
+│       └────────┼────────┘              │
+│                ▼                       │
+│        ┌──────────────┐               │
+│        │  Redis Cache │               │
+│        └──────────────┘               │
+│                │                       │
+│       ┌────────┼────────┐             │
+│       ▼        ▼        ▼             │
+│  ┌────────┬────────┬────────┐        │
+│  │  MCP   │  MCP   │  MCP   │        │
+│  │Server A│Server B│Server C│        │
+│  └────────┴────────┴────────┘        │
+│                                       │
+│  ┌────────────────────────────────┐  │
+│  │  Observability Stack           │  │
+│  │  (OTEL, Prometheus, Grafana)   │  │
+│  └────────────────────────────────┘  │
+└─────────────────────────────────────────┘
+```
+
+**Characteristics**:
+- Gateway hosted in cloud (AWS, GCP, Azure)
+- Clients connect via HTTPS (streamable HTTP transport)
+- TLS termination at load balancer
+- Distributed caching with managed Redis
+- Centralized monitoring and logging
+- API key authentication over HTTPS
+
+**Gateway Configuration**:
+
+```python gateway.py
+# Enable streamable HTTP transport
+if __name__ == "__main__":
+    mcp.run(
+        transport="streamable-http",
+        host="0.0.0.0",
+        port=8000,
+        path="/mcp/"
+    )
+```
+
+**Client Configuration**:
+
+```json claude_desktop_config.json
+{
+  "mcpServers": {
+    "Remote Secure Gateway": {
+      "url": "https://gateway.example.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer YOUR_GATEWAY_API_KEY"
+      }
+    }
+  }
+}
+```
+
+**Security Considerations**:
+<Warning>
+  - **Always use HTTPS** for remote deployments
+  - Store API keys in environment variables or secrets manager
+  - Enable rate limiting at load balancer
+  - Use VPC/private subnets for internal services
+  - Rotate API keys regularly with CLI: `secure-mcp-gateway apikey rotate`
+</Warning>
+
+**Cloud Deployment Examples**:
+
+<Tabs>
+  <Tab title="AWS">
+    **Architecture**:
+    - **ALB**: Application Load Balancer with TLS
+    - **ECS Fargate**: Containerized gateway instances
+    - **ElastiCache Redis**: Managed cache cluster
+    - **CloudWatch**: Logs and metrics
+    - **X-Ray**: Distributed tracing
+
+    **Terraform Example**:
+    ```hcl
+    resource "aws_ecs_service" "gateway" {
+      name            = "secure-mcp-gateway"
+      cluster         = aws_ecs_cluster.main.id
+      task_definition = aws_ecs_task_definition.gateway.arn
+      desired_count   = 3
+
+      load_balancer {
+        target_group_arn = aws_lb_target_group.gateway.arn
+        container_name   = "gateway"
+        container_port   = 8000
+      }
+
+      network_configuration {
+        subnets         = aws_subnet.private[*].id
+        security_groups = [aws_security_group.gateway.id]
+      }
+    }
+
+    resource "aws_elasticache_cluster" "cache" {
+      cluster_id           = "mcp-gateway-cache"
+      engine               = "redis"
+      node_type            = "cache.t3.small"
+      num_cache_nodes      = 1
+      parameter_group_name = "default.redis7"
+      port                 = 6379
+    }
+    ```
+  </Tab>
+
+  <Tab title="GCP">
+    **Architecture**:
+    - **Cloud Load Balancing**: HTTPS load balancer
+    - **Cloud Run**: Serverless containers
+    - **Memorystore**: Managed Redis
+    - **Cloud Logging**: Centralized logs
+    - **Cloud Trace**: Distributed tracing
+
+    **gcloud Deploy**:
+    ```bash
+    # Build and push image
+    gcloud builds submit --tag gcr.io/PROJECT_ID/secure-mcp-gateway
+
+    # Deploy to Cloud Run
+    gcloud run deploy secure-mcp-gateway \
+      --image gcr.io/PROJECT_ID/secure-mcp-gateway \
+      --platform managed \
+      --region us-central1 \
+      --allow-unauthenticated \
+      --set-env-vars "ENKRYPT_CACHE_HOST=REDIS_IP"
+    ```
+  </Tab>
+
+  <Tab title="Azure">
+    **Architecture**:
+    - **Application Gateway**: HTTPS load balancer
+    - **Container Instances**: Managed containers
+    - **Azure Cache for Redis**: Managed Redis
+    - **Application Insights**: Monitoring
+    - **Log Analytics**: Log aggregation
+
+    **Azure CLI Deploy**:
+    ```bash
+    # Create container instance
+    az container create \
+      --resource-group mcp-gateway-rg \
+      --name secure-mcp-gateway \
+      --image secure-mcp-gateway:latest \
+      --cpu 2 --memory 4 \
+      --ports 8000 \
+      --environment-variables \
+        ENKRYPT_CACHE_HOST=$REDIS_HOST \
+        ENKRYPT_CACHE_PASSWORD=$REDIS_PASSWORD
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+### 6. Hybrid Deployment
+
+**Use Case**: Gateway in cloud, MCP servers on-premise or distributed
+
+```
+┌─────────────────────────────────────────┐
+│  Cloud (Gateway + Observability)        │
+│  ┌──────────┐  ┌──────────────┐        │
+│  │ Gateway  │──│ Redis Cache  │        │
+│  └────┬─────┘  └──────────────┘        │
+└───────┼──────────────────────────────────┘
+        │
+        │  VPN / Private Link
+        │
+┌───────┼──────────────────────────────────┐
+│  On-Premise / Edge                       │
+│       │                                  │
+│  ┌────┴─────────┬─────────────┐         │
+│  ▼              ▼             ▼         │
+│  ┌──────────┬──────────┬──────────┐    │
+│  │Internal  │Database  │File      │    │
+│  │API MCP   │MCP       │System MCP│    │
+│  └──────────┴──────────┴──────────┘    │
+└─────────────────────────────────────────┘
+```
+
+**Characteristics**:
+- Gateway in cloud for scalability
+- MCP servers on-premise for data security
+- Secure connectivity via VPN or private link
+- Sensitive data never leaves private network
+- Gateway acts as secure proxy
+
+**Use Cases**:
+- Accessing internal databases without exposing them
+- File system operations on private networks
+- Compliance requirements (HIPAA, SOC 2)
+- Legacy system integration
+
+---
+
+## Scaling Strategies
+
+### Vertical Scaling (Scale Up)
+
+**When to use**: Initial growth, simpler operations
+
+```bash
+# Increase Docker container resources
+docker run \
+  --memory="4g" \
+  --cpus="2.0" \
+  secure-mcp-gateway
+
+# Or in docker-compose.yml
+services:
+  gateway:
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+```
+
+**Limits**: Single machine CPU/memory capacity (~16 cores, 64GB RAM typical)
+
+### Horizontal Scaling (Scale Out)
+
+**When to use**: High throughput, high availability, distributed clients
+
+**Requirements**:
+1. External cache (Redis/KeyDB)
+2. Load balancer
+3. Stateless gateway design ✓ (already implemented)
+
+**Scaling Steps**:
+<Steps>
+  <Step title="Enable External Cache">
+    Update `enkrypt_mcp_config.json`:
+    ```json
+    {
+      "common_mcp_gateway_config": {
+        "enkrypt_mcp_use_external_cache": true,
+        "enkrypt_cache_host": "redis.internal",
+        "enkrypt_cache_port": 6379
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Deploy Redis Cluster">
+    For high availability:
+    ```bash
+    # Redis Sentinel (3 nodes)
+    docker run -d redis:7 --sentinel
+
+    # Or KeyDB (Redis-compatible, multi-threaded)
+    docker run -d eqalpha/keydb:latest
+    ```
+  </Step>
+
+  <Step title="Launch Gateway Instances">
+    ```bash
+    # Instance 1
+    docker run -d --name gateway-1 -p 8001:8000 ...
+
+    # Instance 2
+    docker run -d --name gateway-2 -p 8002:8000 ...
+
+    # Instance 3
+    docker run -d --name gateway-3 -p 8003:8000 ...
+    ```
+  </Step>
+
+  <Step title="Configure Load Balancer">
+    **Nginx Example**:
+    ```nginx
+    upstream gateway_backend {
+        least_conn;
+        server gateway-1:8000 max_fails=3 fail_timeout=30s;
+        server gateway-2:8000 max_fails=3 fail_timeout=30s;
+        server gateway-3:8000 max_fails=3 fail_timeout=30s;
+    }
+
+    server {
+        listen 443 ssl http2;
+        server_name gateway.example.com;
+
+        ssl_certificate /etc/nginx/ssl/cert.pem;
+        ssl_certificate_key /etc/nginx/ssl/key.pem;
+
+        location /mcp/ {
+            proxy_pass http://gateway_backend;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+        }
+
+        location /health {
+            proxy_pass http://gateway_backend/health;
+        }
+    }
+    ```
+  </Step>
+</Steps>
+
+### Auto-Scaling
+
+**Kubernetes HPA (Horizontal Pod Autoscaler)**:
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gateway-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: secure-mcp-gateway
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+```
+
+**Metrics to Monitor**:
+- **CPU Utilization**: Target 60-70%
+- **Memory Usage**: Target < 80%
+- **Request Rate**: Requests/second
+- **Response Time**: p50, p95, p99 latency
+- **Error Rate**: % failed requests
+- **Cache Hit Ratio**: > 80% ideal
+
+---
+
+## Performance Optimization
+
+### Cache Configuration
+
+```json
+{
+  "common_mcp_gateway_config": {
+    "enkrypt_tool_cache_expiration": 4,     // 4 hours (tool discovery)
+    "enkrypt_gateway_cache_expiration": 24  // 24 hours (gateway config)
+  }
+}
+```
+
+**Tuning Guidelines**:
+- **Frequent tool changes**: Reduce to 1-2 hours
+- **Stable environments**: Increase to 12-24 hours
+- **High cache hit ratio**: Longer expiration acceptable
+- **Low memory**: Shorter expiration to free space
+
+### Timeout Configuration
+
+```json
+{
+  "timeout_settings": {
+    "default_timeout": 30,
+    "guardrail_timeout": 15,
+    "auth_timeout": 10,
+    "tool_execution_timeout": 60,
+    "discovery_timeout": 20,
+    "cache_timeout": 5,
+    "connectivity_timeout": 2
+  }
+}
+```
+
+**Optimization**:
+- Increase `tool_execution_timeout` for slow MCP servers
+- Decrease `guardrail_timeout` if using fast local guardrails
+- Set `connectivity_timeout` low to fail fast on network issues
+
+### Async Guardrails
+
+```json
+{
+  "enkrypt_async_input_guardrails_enabled": true,
+  "enkrypt_async_output_guardrails_enabled": true
+}
+```
+
+**Benefits**:
+- Reduced latency (guardrails run in parallel)
+- Improved throughput
+- Better resource utilization
+
+**Trade-offs**:
+- Slightly higher complexity
+- Potential for race conditions in logging
+
+---
+
+## High Availability
+
+### Components for HA
+
+<CardGroup cols={2}>
+  <Card title="Multiple Gateway Instances" icon="server">
+    - Minimum 3 instances for quorum
+    - Deploy across availability zones
+    - Use health checks for automatic failover
+  </Card>
+
+  <Card title="Redis Sentinel" icon="database">
+    - 3-node Sentinel cluster
+    - Automatic failover (< 30s)
+    - Monitors master health
+  </Card>
+
+  <Card title="Load Balancer" icon="scale-balanced">
+    - Active health checks every 10s
+    - Remove unhealthy instances
+    - SSL/TLS termination
+  </Card>
+
+  <Card title="Observability" icon="chart-line">
+    - Real-time alerts on failures
+    - Distributed tracing for debugging
+    - Historical metrics for capacity planning
+  </Card>
+</CardGroup>
+
+### Disaster Recovery
+
+**Backup Strategy**:
+```bash
+# Backup configuration
+secure-mcp-gateway system backup --output backup_$(date +%Y%m%d).json
+
+# Automated daily backups
+0 2 * * * /usr/bin/secure-mcp-gateway system backup --output /backups/backup_$(date +\%Y\%m\%d).json
+```
+
+**Restore Procedure**:
+```bash
+# Restore from backup
+secure-mcp-gateway system restore --file backup_20260304.json
+
+# Verify configuration
+secure-mcp-gateway config list
+```
+
+**Multi-Region Setup**:
+- Deploy gateway in multiple regions
+- Use global load balancer (AWS Route 53, Cloudflare)
+- Replicate Redis across regions (async replication)
+- Geo-routing for low latency
+
+---
+
+## Cost Optimization
+
+### Resource Sizing Guidelines
+
+| Deployment | Instances | CPU/Instance | Memory/Instance | Cache | Est. Cost/Month |
+|------------|-----------|--------------|-----------------|-------|------------------|
+| Development | 1 | 1 core | 2 GB | Local | $20-40 |
+| Small Prod | 2 | 2 cores | 4 GB | Redis (1 node) | $150-250 |
+| Medium Prod | 3-5 | 2 cores | 8 GB | Redis (3 nodes) | $400-700 |
+| Large Prod | 5-10 | 4 cores | 16 GB | Redis Cluster | $1000-2000 |
+
+**Cost Reduction Tips**:
+- Use spot/preemptible instances for non-critical environments
+- Enable auto-scaling to scale down during low traffic
+- Use reserved instances for predictable workloads (40-60% savings)
+- Optimize cache expiration to reduce Redis memory
+- Consider managed services (ECS Fargate, Cloud Run) for operational simplicity
+
+---
+
+## Security Best Practices
+
+<Warning>
+  **Production Security Checklist**:
+  - ✓ Use HTTPS for all remote connections
+  - ✓ Store API keys in secrets manager (AWS Secrets Manager, HashiCorp Vault)
+  - ✓ Enable Redis authentication (`requirepass`)
+  - ✓ Use VPC/private subnets for internal services
+  - ✓ Enable TLS for OTLP endpoints
+  - ✓ Rotate API keys every 90 days
+  - ✓ Enable guardrails on production servers
+  - ✓ Set up alerting for security events
+  - ✓ Regular security audits and penetration testing
+  - ✓ Keep dependencies updated
+</Warning>
+
+---
+
+## Troubleshooting Production Issues
+
+### High Latency
+
+1. **Check cache hit ratio**:
+   ```bash
+   # Via gateway tool
+   enkrypt_get_cache_status()
+
+   # Target: > 80% hit ratio
+   ```
+
+2. **Review timeout metrics**:
+   ```bash
+   enkrypt_get_timeout_metrics()
+   ```
+
+3. **Analyze traces in Jaeger**:
+   - Identify slow MCP servers
+   - Look for guardrail bottlenecks
+   - Check network latency
+
+### High Error Rate
+
+1. **Check Grafana dashboards**:
+   - Error rate by server
+   - Error types (auth, timeout, execution)
+
+2. **Review logs in Loki**:
+   ```
+   {job="gateway"} |= "ERROR"
+   ```
+
+3. **Common causes**:
+   - MCP server crashes
+   - Network connectivity issues
+   - Invalid API keys
+   - Guardrail blocks
+
+### Cache Issues
+
+1. **Verify Redis connectivity**:
+   ```bash
+   redis-cli -h redis.internal ping
+   # Expected: PONG
+   ```
+
+2. **Check Redis memory**:
+   ```bash
+   redis-cli INFO memory
+   ```
+
+3. **Clear cache if stale**:
+   ```bash
+   secure-mcp-gateway cache clear --all
+   ```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="External Cache Setup" icon="database" href="/guides/external-cache">
+    Configure Redis/KeyDB for distributed caching
+  </Card>
+  <Card title="Load Balancing" icon="scale-balanced" href="/deployment/deployment-patterns">
+    Set up Nginx or cloud load balancers
+  </Card>
+  <Card title="Monitoring & Alerting" icon="bell" href="/observability/metrics">
+    Configure alerts for production incidents
+  </Card>
+  <Card title="Security Hardening" icon="shield" href="/security/overview">
+    Implement production security controls
+  </Card>
+</CardGroup>

@@ -1,0 +1,531 @@
+---
+title: 'Other MCP Clients'
+description: 'Integrate Secure MCP Gateway with CrewAI, Kiro, Strands, Vercel AI SDK, and OpenAI'
+icon: 'grid'
+---
+
+## Overview
+
+The Secure MCP Gateway provides guardrails integrations for multiple AI frameworks and platforms beyond Claude Desktop and Cursor. Each integration follows the same pattern: hook-based guardrails that validate inputs and outputs.
+
+---
+
+## CrewAI
+
+<img src="/images/crewai-logo.png" alt="CrewAI" className="w-32 h-32" />
+
+Protect your CrewAI multi-agent systems with guardrails for LLM calls and tool executions.
+
+### Features
+
+- **before_llm_call**: Block unsafe prompts before LLM requests
+- **after_llm_call**: Audit LLM responses
+- **before_tool_call**: Validate tool inputs
+- **after_tool_call**: Audit tool outputs
+
+### Installation
+
+```bash
+cd hooks/crewai
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r hooks/requirements.txt
+```
+
+### Configuration
+
+```bash
+cp hooks/guardrails_config_example.json hooks/guardrails_config.json
+export ENKRYPT_API_KEY="your-api-key"
+```
+
+### Usage
+
+<CodeGroup>
+
+```python Context Manager
+from crewai import Agent, Task, Crew
+from enkrypt_guardrails import EnkryptGuardrailsContext
+
+# Define your agents
+researcher = Agent(
+    role='Researcher',
+    goal='Find accurate information',
+    backstory='Expert researcher'
+)
+
+# Run with guardrails protection
+with EnkryptGuardrailsContext():
+    crew = Crew(agents=[researcher], tasks=[research_task])
+    result = crew.kickoff(inputs={'topic': 'AI Safety'})
+```
+
+```python Decorator
+from enkrypt_guardrails import with_guardrails
+
+@with_guardrails
+def run_my_crew():
+    crew = MyCrew().crew()
+    return crew.kickoff(inputs={'topic': 'AI Safety'})
+
+result = run_my_crew()
+```
+
+```python Global
+from enkrypt_guardrails import enable_guardrails, disable_guardrails
+
+enable_guardrails()
+
+crew = MyCrew().crew()
+result = crew.kickoff(inputs={'topic': 'AI Safety'})
+
+disable_guardrails()
+```
+
+</CodeGroup>
+
+### Hook Events
+
+| Hook | When It Runs | Purpose |
+|------|--------------|----------|
+| `before_llm_call` | Before LLM request | Block unsafe prompts |
+| `after_llm_call` | After LLM response | Audit outputs |
+| `before_tool_call` | Before tool execution | Validate tool inputs |
+| `after_tool_call` | After tool execution | Audit tool outputs |
+
+### Logs
+
+Logs are written to `~/crewai/hooks_logs/`:
+- `before_llm_call.jsonl`
+- `after_llm_call.jsonl`
+- `before_tool_call.jsonl`
+- `after_tool_call.jsonl`
+- `security_alerts.jsonl`
+
+---
+
+## Kiro IDE
+
+<img src="/images/kiro-logo.png" alt="Kiro" className="w-32 h-32" />
+
+Kiro IDE hooks integration for prompt validation, agent response auditing, and file security scanning.
+
+### Features
+
+- **PromptSubmit**: Block unsafe prompts
+- **AgentStop**: Audit agent responses
+- **FileSave**: Scan saved files for secrets/PII
+- **FileCreate**: Validate new files
+- **Manual**: On-demand security scanning
+
+### Installation
+
+```bash
+cd hooks/kiro
+python -m venv venv
+source venv/bin/activate
+pip install -r hooks/requirements.txt
+```
+
+### Configuration
+
+Create Kiro hook files in `.kiro/hooks/` directory:
+
+```json before-prompt-guardrails.kiro.hook
+{
+  "enabled": true,
+  "name": "Before Prompt Guardrails",
+  "description": "Validates user prompts using Enkrypt AI Guardrails",
+  "version": "1",
+  "when": {
+    "type": "promptSubmit"
+  },
+  "then": {
+    "type": "runCommand",
+    "command": "python hooks/kiro/hooks/prompt_submit.py"
+  },
+  "workspaceFolderName": "YOUR_WORKSPACE_NAME",
+  "shortName": "before-prompt-guardrails"
+}
+```
+
+### Hook Types
+
+| Trigger Type | When It Fires |
+|--------------|---------------|
+| `promptSubmit` | Before user prompt is sent |
+| `agentStop` | After agent completes |
+| `fileEdited` | When file is saved |
+| `fileCreated` | When new file is created |
+| `userTriggered` | Manually triggered |
+
+### Logs
+
+Logs are written to `~/kiro/hooks_logs/`:
+- `PromptSubmit.jsonl`
+- `AgentStop.jsonl`
+- `FileSave.jsonl`
+- `FileCreate.jsonl`
+- `security_alerts.jsonl`
+
+---
+
+## Strands Agents
+
+<img src="/images/strands-logo.png" alt="Strands" className="w-32 h-32" />
+
+Universal security guardrails for Strands Agents that work with **ANY model provider** - not just Amazon Bedrock.
+
+### Why Enkrypt Guardrails?
+
+Strands Agents SDK has native guardrails support, but **only for Amazon Bedrock**. Enkrypt Guardrails work with OpenAI, Anthropic, Ollama, LiteLLM, and any other provider.
+
+### Installation
+
+```bash
+cd hooks/strands
+pip install -r requirements.txt
+```
+
+### Configuration
+
+```bash
+cp guardrails_config_example.json guardrails_config.json
+export ENKRYPT_API_KEY="your-api-key"
+```
+
+### Usage
+
+```python
+from strands import Agent
+from enkrypt_guardrails_hook import EnkryptGuardrailsHook
+
+# Create a protected agent
+agent = Agent(
+    system_prompt="You are a helpful assistant.",
+    hooks=[EnkryptGuardrailsHook()]
+)
+
+# The agent is now protected!
+response = agent("What is the capital of France?")
+```
+
+### Hook Events
+
+| Event | Purpose | Action |
+|-------|---------|--------|
+| `MessageAddedEvent` | Check user prompts & responses | Block/Log |
+| `BeforeToolCallEvent` | Validate tool inputs | Block (`event.cancel_tool`) |
+| `AfterToolCallEvent` | Audit tool outputs | Log/Warn |
+| `AfterModelCallEvent` | Monitor model responses | Log |
+
+### Usage Modes
+
+<CodeGroup>
+
+```python Blocking Mode
+from enkrypt_guardrails_hook import EnkryptGuardrailsBlockingHook
+
+agent = Agent(hooks=[EnkryptGuardrailsBlockingHook()])
+```
+
+```python Audit Mode
+from enkrypt_guardrails_hook import EnkryptGuardrailsAuditHook
+
+agent = Agent(hooks=[EnkryptGuardrailsAuditHook()])
+```
+
+```python Convenience Function
+from enkrypt_guardrails_hook import create_protected_agent
+
+agent = create_protected_agent(
+    system_prompt="You are a helpful assistant.",
+    blocking=True
+)
+```
+
+</CodeGroup>
+
+### Logs
+
+Logs are written to `~/strands/guardrails_logs/`:
+- `MessageAdded.jsonl`
+- `BeforeToolCall.jsonl`
+- `AfterToolCall.jsonl`
+- `security_alerts.jsonl`
+
+---
+
+## Vercel AI SDK
+
+<img src="/images/vercel-logo.png" alt="Vercel" className="w-32 h-32" />
+
+Middleware for Vercel AI SDK that protects AI applications with comprehensive guardrails.
+
+### Features
+
+- **Prompt injection detection**: Block malicious prompts
+- **PII/secrets detection**: Prevent sensitive data leaks
+- **Toxicity filtering**: Filter harmful content
+- **Tool call protection**: Monitor tool inputs/outputs
+
+### Installation
+
+```bash
+npm install @enkrypt-ai/vercel-ai-sdk ai
+# or
+pnpm add @enkrypt-ai/vercel-ai-sdk ai
+```
+
+### Configuration
+
+```bash
+cp guardrails-config.example.json guardrails-config.json
+export ENKRYPT_API_KEY="your-api-key"
+```
+
+### Basic Usage
+
+```typescript
+import { generateText, wrapLanguageModel } from 'ai';
+import { openai } from '@ai-sdk/openai';
+import { createEnkryptMiddleware } from '@enkrypt-ai/vercel-ai-sdk';
+
+// Create a protected model
+const protectedModel = wrapLanguageModel({
+  model: openai('gpt-4'),
+  middleware: createEnkryptMiddleware({
+    blockOnViolation: true,
+  }),
+});
+
+// Use as normal - inputs are automatically scanned
+const { text } = await generateText({
+  model: protectedModel,
+  prompt: 'What is the weather in New York?',
+});
+```
+
+### Hook Points
+
+| Hook | When It Fires | What It Does |
+|------|---------------|-------------|
+| `transformParams` | Before model call | Scans input prompt/messages |
+| `wrapGenerate` | After `generateText` | Scans generated output |
+| `wrapStream` | During `streamText` | Monitors streaming output |
+| `prepareStep` | Before each agent step | Validates step inputs |
+| `onStepFinish` | After each agent step | Audits step outputs |
+| `onToolCall` | When tools are called | Validates tool inputs/outputs |
+
+### Tool Protection
+
+```typescript
+import { generateText, tool, wrapLanguageModel } from 'ai';
+import { z } from 'zod';
+import { wrapToolWithGuardrails } from '@enkrypt-ai/vercel-ai-sdk';
+
+const weatherTool = tool({
+  description: 'Get weather for a city',
+  parameters: z.object({ city: z.string() }),
+  execute: async ({ city }) => {
+    return { temperature: 72, conditions: 'sunny' };
+  },
+});
+
+const protectedWeatherTool = wrapToolWithGuardrails(weatherTool, {
+  checkInputs: true,
+  checkOutputs: true,
+  blockOnViolation: true,
+});
+```
+
+### Logs
+
+Logs are written to `~/vercel-ai-sdk/guardrails_logs/`:
+- `combined_audit.jsonl`
+- `security_alerts.jsonl`
+- `enkrypt_api_response.jsonl`
+
+---
+
+## OpenAI Agents SDK
+
+<img src="/images/openai-logo.png" alt="OpenAI" className="w-32 h-32" />
+
+Comprehensive security guardrails for the OpenAI Agents SDK with `RunHooksBase` integration.
+
+### Features
+
+- **Prompt injection detection**: Block malicious prompts
+- **PII/secrets detection**: Prevent sensitive data leaks
+- **Tool call monitoring**: Audit tool inputs/outputs
+- **Agent handoff tracking**: Monitor multi-agent workflows
+
+### Installation
+
+```bash
+pip install openai-agents requests
+cp hooks/openai /path/to/your/project/
+```
+
+### Configuration
+
+```bash
+cd /path/to/your/project/openai
+cp guardrails_config_example.json guardrails_config.json
+# Edit with your API key
+```
+
+### Basic Usage
+
+```python
+import asyncio
+from agents import Agent, Runner
+from enkrypt_guardrails_hook import EnkryptRunHooks
+
+async def main():
+    # Create hooks instance
+    hooks = EnkryptRunHooks(
+        block_on_violation=True,
+        log_only_mode=False,
+    )
+
+    # Create your agent
+    agent = Agent(
+        name="Secure Assistant",
+        instructions="You are a helpful assistant."
+    )
+
+    # Run with guardrails protection
+    result = await Runner.run(
+        agent,
+        hooks=hooks,
+        input="What is the capital of France?"
+    )
+
+    print(result.final_output)
+
+asyncio.run(main())
+```
+
+### Hook Events
+
+| Hook | Description | Can Block |
+|------|-------------|-----------|
+| `on_agent_start` | Before agent execution | Yes |
+| `on_agent_end` | After agent output | No (audit) |
+| `on_llm_start` | Before LLM call | Yes |
+| `on_llm_end` | After LLM response | No (audit) |
+| `on_tool_start` | Before tool execution | Yes |
+| `on_tool_end` | After tool execution | No (audit) |
+| `on_handoff` | When agent handoff occurs | No (audit) |
+
+### Multi-Agent Support
+
+```python
+from agents import Agent, Runner
+from enkrypt_guardrails_hook import EnkryptRunHooks
+
+# Create specialized agents
+math_agent = Agent(name="Math Agent", instructions="...")
+writer_agent = Agent(name="Writer Agent", instructions="...")
+
+# Router agent with handoffs
+router = Agent(
+    name="Router",
+    instructions="Route to appropriate specialist",
+    handoffs=[math_agent, writer_agent]
+)
+
+# Guardrails monitor all agents and handoffs
+hooks = EnkryptRunHooks()
+result = await Runner.run(router, hooks=hooks, input="Calculate 5 + 3")
+```
+
+### Logs
+
+Logs are written to `~/openai_agents/guardrails_logs/`:
+- `on_agent_start.jsonl`
+- `on_llm_end.jsonl`
+- `on_tool_start.jsonl`
+- `combined_audit.jsonl`
+- `security_alerts.jsonl`
+
+---
+
+## Common Configuration
+
+All integrations use the same configuration format:
+
+```json guardrails_config.json
+{
+  "enkrypt_api": {
+    "url": "https://api.enkryptai.com/guardrails/policy/detect",
+    "api_key": "YOUR_ENKRYPT_API_KEY",
+    "ssl_verify": true,
+    "timeout": 15,
+    "fail_silently": true
+  },
+  "<hook_name>": {
+    "enabled": true,
+    "guardrail_name": "Sample Airline Guardrail",
+    "block": ["injection_attack", "pii", "toxicity"]
+  }
+}
+```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `ENKRYPT_API_KEY` | Your Enkrypt API key |
+| `ENKRYPT_API_URL` | API endpoint URL |
+| `<CLIENT>_HOOKS_LOG_DIR` | Log directory path |
+| `<CLIENT>_HOOKS_LOG_RETENTION_DAYS` | Log retention days |
+
+---
+
+## Available Detectors
+
+| Detector | Description | Use Case |
+|----------|-------------|----------|
+| `injection_attack` | Prompt injection attempts | Block jailbreak attempts |
+| `pii` | Personal info & secrets | Prevent data leaks |
+| `toxicity` | Harmful content | Content moderation |
+| `nsfw` | Adult content | Content filtering |
+| `keyword_detector` | Banned keywords | Custom blocking |
+| `policy_violation` | Custom policies | Business rules |
+| `bias` | Biased content | Fair AI |
+| `sponge_attack` | Resource exhaustion | DoS prevention |
+| `topic_detector` | Off-topic content | Stay on task |
+
+---
+
+## Testing
+
+All integrations include test suites:
+
+```bash
+cd hooks/<client>
+pip install pytest
+pytest tests/ -v
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configure Policies" icon="shield-halved" href="/features/guardrails">
+    Create custom guardrail policies
+  </Card>
+  <Card title="View Metrics" icon="chart-line" href="/observability/metrics">
+    Monitor guardrails performance
+  </Card>
+  <Card title="Audit Logs" icon="file-lines" href="/observability/logging">
+    Review security events
+  </Card>
+  <Card title="Add Detectors" icon="radar" href="/security/guardrail-types">
+    Configure detection rules
+  </Card>
+</CardGroup>

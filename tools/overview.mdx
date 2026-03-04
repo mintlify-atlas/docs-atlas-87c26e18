@@ -1,0 +1,244 @@
+---
+title: Gateway Tools Overview
+description: Learn how to use the Secure MCP Gateway tools to list servers, discover tools, execute tools securely, and manage cache.
+---
+
+## Introduction
+
+The Secure MCP Gateway exposes a set of powerful tools that allow you to interact with your configured MCP servers through a secure, authenticated, and guardrail-protected interface. These tools are available to any MCP client connected to the gateway (such as Claude Desktop, Cursor, or Claude Code).
+
+## Available Gateway Tools
+
+The gateway provides seven core tools:
+
+| Tool | Purpose | Read-Only |
+|------|---------|----------|
+| `enkrypt_list_all_servers` | List all configured servers with their tools | Yes |
+| `enkrypt_get_server_info` | Get detailed information about a specific server | Yes |
+| `enkrypt_discover_all_tools` | Discover available tools from servers | Yes |
+| `enkrypt_secure_call_tools` | Execute tools with guardrails and security checks | No |
+| `enkrypt_get_cache_status` | View cache status for discovered tools | Yes |
+| `enkrypt_clear_cache` | Clear cached tools and configurations | No |
+| `enkrypt_get_timeout_metrics` | View timeout and performance metrics | Yes |
+
+<Note>
+All tools require authentication via the gateway key configured in your MCP client.
+</Note>
+
+## Tool Discovery Workflow
+
+The typical workflow for using gateway tools follows this pattern:
+
+```mermaid
+graph LR
+    A[List Servers] --> B[Discover Tools]
+    B --> C[Execute Tools]
+    C --> D[View Results]
+    D --> C
+```
+
+1. **List servers** - Use `enkrypt_list_all_servers` to see available servers
+2. **Discover tools** - Use `enkrypt_discover_all_tools` to find what each server can do
+3. **Execute tools** - Use `enkrypt_secure_call_tools` to run tools with security guardrails
+4. **Monitor** - Use cache and timeout tools to debug and optimize performance
+
+## Authentication
+
+All gateway tools automatically authenticate using the credentials configured in your MCP client:
+
+<CodeGroup>
+
+```json Claude Desktop
+{
+  "mcpServers": {
+    "Enkrypt Secure MCP Gateway": {
+      "command": "mcp",
+      "args": ["run", "/path/to/gateway.py"],
+      "env": {
+        "ENKRYPT_GATEWAY_KEY": "your-gateway-key",
+        "ENKRYPT_PROJECT_ID": "your-project-id",
+        "ENKRYPT_USER_ID": "your-user-id"
+      }
+    }
+  }
+}
+```
+
+```json Cursor
+{
+  "mcpServers": {
+    "Enkrypt Secure MCP Gateway": {
+      "command": "mcp",
+      "args": ["run", "/path/to/gateway.py"],
+      "env": {
+        "ENKRYPT_GATEWAY_KEY": "your-gateway-key",
+        "ENKRYPT_PROJECT_ID": "your-project-id",
+        "ENKRYPT_USER_ID": "your-user-id"
+      }
+    }
+  }
+}
+```
+
+</CodeGroup>
+
+The gateway validates these credentials against your local configuration file (`~/.enkrypt/enkrypt_mcp_config.json`) or optionally against a remote authentication server.
+
+## Tool Invocation Examples
+
+### Using Tools in Claude Desktop
+
+When chatting with Claude, you can simply ask for actions:
+
+<Card>
+  <p><strong>User:</strong> "List all available servers"</p>
+  <p><strong>Claude:</strong> Uses `enkrypt_list_all_servers` tool automatically</p>
+</Card>
+
+<Card>
+  <p><strong>User:</strong> "What tools does the GitHub server have?"</p>
+  <p><strong>Claude:</strong> Uses `enkrypt_discover_all_tools` with `server_name="github"`</p>
+</Card>
+
+<Card>
+  <p><strong>User:</strong> "Create a new issue in my repository"</p>
+  <p><strong>Claude:</strong> Uses `enkrypt_secure_call_tools` to execute GitHub tool</p>
+</Card>
+
+### Direct Tool Invocation
+
+You can also explicitly call tools:
+
+```
+Please use the enkrypt_list_all_servers tool to show me all configured servers.
+```
+
+```
+Use enkrypt_discover_all_tools to find what tools are available for the "weather" server.
+```
+
+## Tool Response Format
+
+All gateway tools return standardized JSON responses:
+
+### Success Response
+
+```json
+{
+  "status": "success",
+  "message": "Operation completed successfully",
+  // Tool-specific data
+}
+```
+
+### Error Response
+
+```json
+{
+  "status": "error",
+  "error": "Error description",
+  "error_code": "ERROR_CODE",
+  "correlation_id": "uuid-for-debugging"
+}
+```
+
+## Caching Behavior
+
+The gateway automatically caches discovered tools to improve performance:
+
+- **Tool cache**: 4 hours (default)
+- **Gateway config cache**: 24 hours (default)
+- **Cache types**: Local (in-memory) or External (Redis/KeyDB)
+
+Cached tools are automatically used when available. Use `enkrypt_clear_cache` to force re-discovery.
+
+## Guardrails Integration
+
+When executing tools via `enkrypt_secure_call_tools`, the gateway can apply security guardrails:
+
+<AccordionGroup>
+  <Accordion title="Input Guardrails">
+    - PII detection and redaction
+    - Toxicity filtering
+    - NSFW content blocking
+    - Injection attack prevention
+    - Policy violation detection
+    - Keyword blocking
+  </Accordion>
+  
+  <Accordion title="Output Guardrails">
+    - All input guardrails
+    - Relevancy validation
+    - Adherence checking
+    - Hallucination detection
+    - PII de-anonymization
+  </Accordion>
+</AccordionGroup>
+
+Guardrails are configured per-server in your gateway configuration file.
+
+## Tool Annotations
+
+Each tool includes MCP annotations that provide hints to clients:
+
+- **readOnlyHint**: Whether the tool modifies state
+- **destructiveHint**: Whether the tool performs destructive actions
+- **idempotentHint**: Whether repeated calls have the same effect
+- **openWorldHint**: Whether the tool interacts with external systems
+
+## Error Handling
+
+Gateway tools provide detailed error information:
+
+<CodeGroup>
+
+```json Authentication Error
+{
+  "status": "error",
+  "error": "Authentication failed: Invalid gateway key",
+  "error_code": "AUTH_INVALID_CREDENTIALS"
+}
+```
+
+```json Server Not Found
+{
+  "status": "error",
+  "error": "Server 'github' not available",
+  "error_code": "DISCOVERY_SERVER_UNAVAILABLE"
+}
+```
+
+```json Guardrail Blocked
+{
+  "status": "blocked_input",
+  "message": "Request blocked due to input guardrail violations: policy_violation",
+  "input_guardrail_response": {
+    "violations": [
+      {
+        "type": "policy_violation",
+        "severity": "high",
+        "message": "Content violates security policy"
+      }
+    ]
+  }
+}
+```
+
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="List Servers" icon="server" href="/tools/list-servers">
+    Learn how to discover available MCP servers
+  </Card>
+  <Card title="Discover Tools" icon="magnifying-glass" href="/tools/discover-tools">
+    Find available tools for each server
+  </Card>
+  <Card title="Execute Tools" icon="play" href="/tools/execute-tools">
+    Run tools securely with guardrails
+  </Card>
+  <Card title="Cache Management" icon="database" href="/tools/cache-management">
+    Manage tool discovery cache
+  </Card>
+</CardGroup>

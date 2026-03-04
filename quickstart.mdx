@@ -1,80 +1,384 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Quick start"
+description: "Get Secure MCP Gateway running in 5-10 minutes with this quick start guide."
 ---
 
-## Get started in three steps
+## Overview
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+This guide will help you install the Secure MCP Gateway, generate a configuration, and connect it to Claude Desktop with a test echo server. You'll be up and running in under 10 minutes.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  This quick start uses the pip installation method and Claude Desktop as the MCP client. For other installation methods or clients, see the [installation guide](/installation).
 </Note>
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+- **Python 3.11 or higher** - Check with `python --version`
+- **pip 25.0.1 or higher** - Check with `pip --version`
+- **Claude Desktop** - Download from [claude.ai/download](https://claude.ai/download)
+
+<Info>
+  If you don't have these installed, refer to the [installation guide](/installation) for detailed setup instructions.
+</Info>
+
+## Step 1: Install the gateway
+
+<Steps>
+  <Step title="Create a virtual environment">
+    ```bash
+    python -m venv .secure-mcp-gateway-venv
+    
+    # On macOS/Linux
+    source .secure-mcp-gateway-venv/bin/activate
+    
+    # On Windows
+    .secure-mcp-gateway-venv\Scripts\activate
+    ```
+  </Step>
+  
+  <Step title="Install from PyPI">
+    ```bash
+    pip install secure-mcp-gateway
+    ```
+    
+    This installs the gateway and all dependencies, including the `mcp` CLI.
+  </Step>
+  
+  <Step title="Verify installation">
+    ```bash
+    secure-mcp-gateway --version
+    ```
+    
+    You should see version 2.1.7 or higher.
+  </Step>
+</Steps>
+
+## Step 2: Generate configuration
+
+The gateway uses a JSON configuration file that defines projects, users, servers, and guardrails.
+
+```bash
+secure-mcp-gateway generate-config
+```
+
+This creates a configuration file with:
+
+- **Location (macOS):** `~/.enkrypt/enkrypt_mcp_config.json`
+- **Location (Windows):** `%USERPROFILE%\.enkrypt\enkrypt_mcp_config.json`
+
+<Info>
+  The generated config includes a default project, user, API key, and an echo server for testing.
+</Info>
+
+### What's in the config?
+
+The generated configuration includes:
+
+- **Common settings** - Log level, cache settings, telemetry configuration
+- **Default project** - Named "default_project" with a unique project ID
+- **Default user** - Email "default@example.com" with a unique user ID
+- **API key** - A 50-character random string for authentication
+- **Echo server** - A test MCP server that echoes back messages
+
+<CodeGroup>
+```json Config structure (simplified)
+{
+  "common_mcp_gateway_config": {
+    "enkrypt_log_level": "INFO",
+    "enkrypt_use_remote_mcp_config": false,
+    "enkrypt_mcp_use_external_cache": false,
+    "enkrypt_tool_cache_expiration": 4,
+    "enkrypt_gateway_cache_expiration": 24
+  },
+  "mcp_configs": {
+    "<config-id>": {
+      "mcp_config_name": "default_config",
+      "mcp_config": [
+        {
+          "server_name": "echo_server",
+          "description": "Simple Echo Server",
+          "config": {
+            "command": "python",
+            "args": ["<path-to-echo-server>"]
+          },
+          "input_guardrails_policy": {
+            "enabled": false
+          },
+          "output_guardrails_policy": {
+            "enabled": false
+          }
+        }
+      ]
+    }
+  },
+  "projects": {
+    "<project-id>": {
+      "project_name": "default_project",
+      "mcp_config_id": "<config-id>",
+      "users": ["<user-id>"]
+    }
+  },
+  "users": {
+    "<user-id>": {
+      "email": "default@example.com"
+    }
+  },
+  "apikeys": {
+    "<gateway-key>": {
+      "project_id": "<project-id>",
+      "user_id": "<user-id>"
+    }
+  }
+}
+```
+</CodeGroup>
+
+## Step 3: Install for Claude Desktop
+
+Connect the gateway to Claude Desktop:
+
+```bash
+secure-mcp-gateway install --client claude-desktop
+```
+
+This command:
+
+1. Reads your gateway configuration
+2. Extracts the API key, project ID, and user ID
+3. Updates Claude's config file at:
+   - **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+4. Configures the gateway as an MCP server
+
+<Warning>
+  You **must restart Claude Desktop** after installation for the changes to take effect.
+</Warning>
+
+### What gets added to Claude's config?
+
+<CodeGroup>
+```json macOS
+{
+  "mcpServers": {
+    "Enkrypt Secure MCP Gateway": {
+      "command": "mcp",
+      "args": [
+        "run",
+        "/Users/user/.secure-mcp-gateway-venv/lib/python3.13/site-packages/secure_mcp_gateway/gateway.py"
+      ],
+      "env": {
+        "ENKRYPT_GATEWAY_KEY": "2W8UupCkazk4SsOcSu_1hAbiOgPdv0g-nN9NtfZyg-rvYGat",
+        "ENKRYPT_PROJECT_ID": "3c09f06c-1f0d-4153-9ac5-366397937641",
+        "ENKRYPT_USER_ID": "6469a670-1d64-4da5-b2b3-790de21ac726"
+      }
+    }
+  }
+}
+```
+
+```json Windows
+{
+  "mcpServers": {
+    "Enkrypt Secure MCP Gateway": {
+      "command": "mcp",
+      "args": [
+        "run",
+        "C:\\Users\\user\\secure-mcp-gateway-venv\\Lib\\site-packages\\secure_mcp_gateway\\gateway.py"
+      ],
+      "env": {
+        "ENKRYPT_GATEWAY_KEY": "2W8UupCkazk4SsOcSu_1hAbiOgPdv0g-nN9NtfZyg-rvYGat",
+        "ENKRYPT_PROJECT_ID": "3c09f06c-1f0d-4153-9ac5-366397937641",
+        "ENKRYPT_USER_ID": "6469a670-1d64-4da5-b2b3-790de21ac726"
+      }
+    }
+  }
+}
+```
+</CodeGroup>
+
+## Step 4: Verify the connection
+
+<Steps>
+  <Step title="Restart Claude Desktop">
+    Completely quit and restart Claude Desktop.
+  </Step>
+  
+  <Step title="Check for the gateway">
+    In Claude, look for the MCP server icon (🔌) in the bottom right corner. Click it to see "Enkrypt Secure MCP Gateway" listed.
+  </Step>
+  
+  <Step title="Test the echo server">
+    Ask Claude: "List all available MCP servers and their tools."
+    
+    You should see:
+    - Server: `echo_server`
+    - Tools: `send_echo_message`
+  </Step>
+  
+  <Step title="Use the echo tool">
+    Ask Claude: "Use the echo server to send the message 'Hello, Gateway!'"
+    
+    Claude will invoke the `send_echo_message` tool through the gateway, and you should receive the echoed response.
+  </Step>
+</Steps>
+
+<Info>
+  If you don't see the gateway or encounter errors, check the troubleshooting section below.
+</Info>
+
+## Step 5: View gateway tools (optional)
+
+The gateway itself provides management tools you can invoke from Claude:
+
+- `enkrypt_list_all_servers` - List all configured MCP servers
+- `enkrypt_get_server_info` - Get details about a specific server
+- `enkrypt_discover_all_tools` - Discover tools from all servers
+- `enkrypt_secure_call_tools` - Execute tools with guardrails
+- `enkrypt_get_cache_status` - View cache statistics
+- `enkrypt_clear_cache` - Clear cached data
+
+Try asking Claude: "Use the gateway to get cache status."
+
+## What's next?
+
+### Add a real MCP server
+
+Now that the gateway is working, add a real MCP server like GitHub:
+
+```bash
+secure-mcp-gateway config add-server \
+  --config-name "default_config" \
+  --server-name "github" \
+  --server-command "npx" \
+  --args="-y,@modelcontextprotocol/server-github" \
+  --description "GitHub MCP Server"
+```
+
+<Note>
+  You'll need to set the `GITHUB_PERSONAL_ACCESS_TOKEN` environment variable. See the [GitHub MCP Server documentation](https://github.com/modelcontextprotocol/servers/tree/main/src/github) for details.
+</Note>
+
+### Enable guardrails
+
+Protect your servers with input and output guardrails:
+
+1. Get an Enkrypt API key from [app.enkryptai.com/settings](https://app.enkryptai.com/settings)
+2. Add it to your config:
+   ```bash
+   # Edit ~/.enkrypt/enkrypt_mcp_config.json
+   # Set "enkrypt_api_key": "your-key-here" in common_mcp_gateway_config
+   ```
+3. Enable guardrails for a server:
+   ```bash
+   secure-mcp-gateway config update-server-guardrails \
+     --config-name "default_config" \
+     --server-name "echo_server" \
+     --input-policy '{"enabled": true, "policy_name": "Sample Airline Guardrail", "block": ["policy_violation"]}'
+   ```
+
+### Set up monitoring
+
+For production deployments, enable observability:
+
+1. Run the OpenTelemetry stack:
+   ```bash
+   cd infra
+   docker-compose up -d
+   ```
+2. Access Grafana at [http://localhost:3000](http://localhost:3000)
+3. View traces in Jaeger at [http://localhost:16686](http://localhost:16686)
+4. Check metrics in Prometheus at [http://localhost:9090](http://localhost:9090)
+
+## Troubleshooting
+
+### Gateway not showing in Claude
+
+1. Verify the config file exists:
+   ```bash
+   # macOS
+   cat ~/Library/Application\ Support/Claude/claude_desktop_config.json
+   
+   # Windows
+   type %APPDATA%\Claude\claude_desktop_config.json
+   ```
+2. Check that the path to `gateway.py` is correct
+3. Ensure Claude Desktop was restarted (not just the window, but the entire app)
+4. Check Claude's logs:
+   - **macOS:** `~/Library/Logs/Claude/`
+   - **Windows:** `%APPDATA%\Claude\logs\`
+
+### "Gateway key is required" error
+
+This means the gateway couldn't find a valid API key. Verify:
+
+1. The `ENKRYPT_GATEWAY_KEY` is set in Claude's config
+2. The key exists in the `apikeys` section of `enkrypt_mcp_config.json`
+3. The key matches exactly (no extra spaces or quotes)
+
+### Echo server not found
+
+If the echo server doesn't appear:
+
+1. Check the config file at `~/.enkrypt/enkrypt_mcp_config.json`
+2. Verify the `args` path points to the actual `echo_mcp.py` file
+3. Test the server directly:
+   ```bash
+   python <path-from-config>
+   ```
+
+### Python version mismatch
+
+If you see errors about Python versions:
+
+1. Ensure you're using Python 3.11+:
+   ```bash
+   python --version
+   ```
+2. Create a new virtual environment with the correct Python:
+   ```bash
+   python3.11 -m venv .secure-mcp-gateway-venv
+   ```
+
+## Other MCP clients
+
+### Cursor
+
+Install for Cursor instead of Claude Desktop:
+
+```bash
+secure-mcp-gateway install --client cursor
+```
+
+This updates `~/.cursor/mcp.json` (or `%USERPROFILE%\.cursor\mcp.json` on Windows).
+
+### Claude Code
+
+For the Claude Code CLI:
+
+```bash
+secure-mcp-gateway install --client claude-code
+```
+
+This runs `claude mcp add` to register the gateway.
+
+## Learn more
+
+<CardGroup cols={2}>
+  <Card title="Installation guide" icon="download" href="/installation">
+    Docker, from source, and advanced installation options
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/concepts/configuration">
+    Configure servers, guardrails, and advanced settings
+  </Card>
+  
+  <Card title="CLI reference" icon="terminal" href="/cli/overview">
+    Complete command reference for managing the gateway
+  </Card>
+  
+  <Card title="API reference" icon="code" href="/api/overview">
+    REST API documentation for programmatic management
+  </Card>
+</CardGroup>

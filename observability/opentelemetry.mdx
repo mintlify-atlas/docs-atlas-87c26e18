@@ -1,0 +1,674 @@
+---
+title: 'OpenTelemetry Setup'
+description: 'Configure OTLP export, distributed tracing, and OpenTelemetry Collector for the Secure MCP Gateway'
+icon: 'chart-network'
+---
+
+## Overview
+
+The Secure MCP Gateway uses OpenTelemetry as its primary observability framework, providing:
+
+- **Structured Logging** via OTLP log export to Loki
+- **Distributed Tracing** with context propagation to Jaeger
+- **Metrics Collection** with Prometheus export
+- **Unified Telemetry** through the OpenTelemetry Collector
+
+## OpenTelemetry Provider
+
+The `OpenTelemetryProvider` implements full OpenTelemetry support:
+
+**Location:** `src/secure_mcp_gateway/plugins/telemetry/opentelemetry_provider.py`
+
+### Key Features
+
+- **OTLP Export:** gRPC and HTTP protocols supported
+- **Resource Attributes:** Service name, version, environment metadata
+- **Batch Processing:** Efficient batching of telemetry data
+- **Connectivity Check:** Automatic endpoint validation on startup
+- **Graceful Degradation:** Falls back to no-op if collector unavailable
+
+### Provider Implementation
+
+```python
+class OpenTelemetryProvider(TelemetryProvider):
+    def __init__(self, config: dict[str, Any] | None = None):
+        self._initialized = False
+        self._logger = None
+        self._tracer = None
+        self._meter = None
+        self._resource = None
+        
+        if config:
+            self.initialize(config)
+    
+    def initialize(self, config: dict[str, Any]) -> TelemetryResult:
+        # Extract configuration
+        enabled = self._check_telemetry_enabled(config)
+        endpoint = config.get("url", "http://localhost:4317")
+        insecure = config.get("insecure", True)
+        service_name = config.get("service_name", "secure-mcp-gateway")
+        job_name = config.get("job_name", "enkryptai")
+        
+        if enabled:
+            self._setup_enabled_telemetry(
+                endpoint, insecure, service_name, job_name, config
+            )
+        else:
+            self._setup_disabled_telemetry()
+        
+        self._initialized = True
+        return TelemetryResult(success=True, provider_name=self.name)
+```
+
+## Configuration
+
+### Basic Configuration
+
+Add telemetry configuration to `enkrypt_mcp_config.json`:
+
+```json
+{
+  "plugins": {
+    "telemetry": {
+      "provider": "opentelemetry",
+      "config": {
+        "enabled": true,
+        "url": "http://localhost:4317",
+        "insecure": true,
+        "service_name": "secure-mcp-gateway",
+        "job_name": "enkryptai"
+      }
+    }
+  },
+  "common_mcp_gateway_config": {
+    "enkrypt_log_level": "INFO"
+  }
+}
+```
+
+### Configuration Options
+
+<ParamField path="enabled" type="boolean" default="true">
+  Enable OpenTelemetry telemetry. When `false`, uses no-op implementations.
+</ParamField>
+
+<ParamField path="url" type="string" default="http://localhost:4317">
+  OTLP endpoint URL. Supports:
+  - gRPC: `http://localhost:4317` (default)
+  - HTTP: `http://localhost:4318`
+</ParamField>
+
+<ParamField path="insecure" type="boolean" default="true">
+  Use insecure connection (no TLS). Set to `false` for production with TLS.
+</ParamField>
+
+<ParamField path="service_name" type="string" default="secure-mcp-gateway">
+  Service name in resource attributes. Used for filtering in Grafana/Jaeger.
+</ParamField>
+
+<ParamField path="job_name" type="string" default="enkryptai">
+  Job name for Prometheus metrics and resource attributes.
+</ParamField>
+
+### Production Configuration
+
+For production deployments with TLS:
+
+```json
+{
+  "plugins": {
+    "telemetry": {
+      "provider": "opentelemetry",
+      "config": {
+        "enabled": true,
+        "url": "https://otel-collector.example.com:4318",
+        "insecure": false,
+        "service_name": "secure-mcp-gateway-prod",
+        "job_name": "production"
+      }
+    }
+  },
+  "common_mcp_gateway_config": {
+    "enkrypt_log_level": "WARNING"
+  }
+}
+```
+
+## OpenTelemetry Collector Setup
+
+### Using Docker Compose
+
+The gateway includes a complete observability stack:
+
+```bash
+cd infra/
+docker-compose up -d
+```
+
+This starts:
+- OpenTelemetry Collector (ports 4317, 4318, 8889)
+- Jaeger (port 16686)
+- Loki (port 3100)
+- Prometheus (port 9090)
+- Grafana (port 3000)
+
+### Collector Configuration
+
+**Location:** `infra/otel_collector/otel-collector-config.yaml`
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+exporters:
+  # Traces to Jaeger
+  otlp:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  
+  # Logs to Loki
+  otlphttp/loki:
+    endpoint: "http://loki:3100/otlp"
+    tls:
+      insecure: true
+  
+  # Metrics to Prometheus
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: "otel"
+    const_labels:
+      service_name: "secure-mcp-gateway"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp, debug]
+    
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus, debug]
+    
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/loki, debug]
+```
+
+### Manual Installation
+
+If not using Docker Compose:
+
+```bash
+# Download collector
+wget https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.134.1/otelcol-contrib_0.134.1_linux_amd64.tar.gz
+tar -xzf otelcol-contrib_0.134.1_linux_amd64.tar.gz
+
+# Create config file (use example above)
+vim otel-collector-config.yaml
+
+# Run collector
+./otelcol-contrib --config=otel-collector-config.yaml
+```
+
+## Distributed Tracing
+
+### Trace Context Propagation
+
+The gateway automatically propagates trace context across operations:
+
+```python
+from secure_mcp_gateway.utils import logger
+from secure_mcp_gateway.plugins.telemetry import get_telemetry_config_manager
+
+telemetry_manager = get_telemetry_config_manager()
+tracer = telemetry_manager.get_tracer()
+
+# Create a span
+with tracer.start_as_current_span("tool_execution") as span:
+    span.set_attribute("server_name", "github_server")
+    span.set_attribute("tool_name", "create_issue")
+    span.set_attribute("user_id", user_id)
+    
+    # Execute operation
+    result = execute_tool(server_name, tool_name, args)
+    
+    # Add result attributes
+    span.set_attribute("success", result.success)
+    span.set_attribute("duration_ms", result.duration)
+```
+
+### Trace Attributes
+
+Common attributes used in gateway traces:
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `server_name` | string | MCP server name |
+| `tool_name` | string | Tool being executed |
+| `user_id` | string | User identifier |
+| `project_id` | string | Project identifier |
+| `custom_id` | string | Request correlation ID |
+| `duration_ms` | int | Operation duration |
+| `success` | boolean | Operation success status |
+| `error_type` | string | Error type if failed |
+
+### Viewing Traces in Jaeger
+
+1. Open Jaeger UI: http://localhost:16686
+2. Select service: `secure-mcp-gateway`
+3. Search by:
+   - Operation name (e.g., `tool_execution`)
+   - Tags (e.g., `server_name=github_server`)
+   - Duration (e.g., slow traces > 1s)
+
+### Trace Examples
+
+**Tool Execution Trace:**
+```
+tool_execution [250ms]
+├── authenticate [10ms]
+│   └── cache_lookup [2ms]
+├── input_guardrails [30ms]
+│   ├── pii_detection [15ms]
+│   └── toxicity_check [15ms]
+├── forward_to_server [180ms]
+│   ├── discover_tools [50ms]
+│   └── call_tool [130ms]
+└── output_guardrails [30ms]
+    ├── relevancy_check [15ms]
+    └── adherence_check [15ms]
+```
+
+## OTLP Export
+
+### gRPC Export (Default)
+
+Default configuration uses gRPC:
+
+```python
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+
+# Traces
+otlp_exporter = OTLPSpanExporter(
+    endpoint="localhost:4317",
+    insecure=True
+)
+
+# Metrics
+metric_exporter = OTLPMetricExporter(
+    endpoint="localhost:4317",
+    insecure=True
+)
+
+# Logs
+log_exporter = OTLPLogExporter(
+    endpoint="localhost:4317",
+    insecure=True
+)
+```
+
+**Location:** `src/secure_mcp_gateway/plugins/telemetry/opentelemetry_provider.py:349`
+
+### HTTP Export
+
+To use HTTP instead of gRPC, configure endpoint with port 4318:
+
+```json
+{
+  "plugins": {
+    "telemetry": {
+      "config": {
+        "url": "http://localhost:4318"
+      }
+    }
+  }
+}
+```
+
+The provider automatically selects the appropriate exporter based on the port.
+
+## Resource Attributes
+
+Resource attributes identify the telemetry source:
+
+```python
+from opentelemetry.sdk.resources import Resource
+
+self._resource = Resource(
+    attributes={
+        "service.name": "secure-mcp-gateway",
+        "job": "enkryptai",
+        "service.version": "2.1.2",
+        "deployment.environment": "production"
+    }
+)
+```
+
+These attributes appear in all logs, traces, and metrics.
+
+**Location:** `src/secure_mcp_gateway/plugins/telemetry/opentelemetry_provider.py:321`
+
+## Connectivity Check
+
+Before enabling telemetry, the provider validates endpoint reachability:
+
+```python
+def _check_telemetry_enabled(self, config: dict[str, Any]) -> bool:
+    """Check if telemetry is enabled and endpoint is reachable."""
+    if not config.get("enabled", False):
+        return False
+    
+    endpoint = config.get("url", "http://localhost:4317")
+    parsed_url = urlparse(endpoint)
+    hostname = parsed_url.hostname
+    port = parsed_url.port
+    
+    try:
+        # Get timeout from TimeoutManager
+        from secure_mcp_gateway.services.timeout import get_timeout_manager
+        timeout_manager = get_timeout_manager()
+        timeout_value = timeout_manager.get_timeout("connectivity")
+        
+        # Test connection
+        with socket.create_connection((hostname, port), timeout=timeout_value):
+            logger.debug(f"OTLP endpoint {endpoint} is reachable")
+            return True
+    except (OSError, AttributeError, TypeError, ValueError) as e:
+        logger.error(
+            f"Telemetry enabled but endpoint {endpoint} unreachable. "
+            f"Disabling telemetry. Error: {e}"
+        )
+        return False
+```
+
+**Location:** `src/secure_mcp_gateway/plugins/telemetry/opentelemetry_provider.py:152`
+
+This ensures the gateway starts successfully even if the collector is unavailable.
+
+## Metrics Export
+
+Metrics are exported via Prometheus exporter:
+
+```python
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+
+# Create exporter
+otlp_exporter = OTLPMetricExporter(
+    endpoint="localhost:4317",
+    insecure=True
+)
+
+# Create reader with 5-second export interval
+reader = PeriodicExportingMetricReader(
+    otlp_exporter,
+    export_interval_millis=5000
+)
+
+# Create meter provider
+provider = MeterProvider(
+    resource=self._resource,
+    metric_readers=[reader]
+)
+metrics.set_meter_provider(provider)
+
+# Get meter
+self._meter = metrics.get_meter("enkrypt.meter")
+```
+
+**Location:** `src/secure_mcp_gateway/plugins/telemetry/opentelemetry_provider.py:358`
+
+The collector receives OTLP metrics and exports them to Prometheus on port 8889.
+
+## Integration with Services
+
+### Grafana Integration
+
+**Datasource Configuration:**
+
+**Location:** `infra/grafana/provisioning/datasources/datasources.yaml`
+
+```yaml
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      maxLines: 1000
+  
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: jaeger
+  
+  - name: Jaeger
+    type: jaeger
+    uid: jaeger
+    access: proxy
+    url: http://jaeger:16686/jaeger
+    jsonData:
+      nodeGraph:
+        enabled: true
+```
+
+### Jaeger Integration
+
+Jaeger receives traces via OTLP:
+
+```yaml
+jaeger:
+  image: jaegertracing/all-in-one:1.73.0
+  ports:
+    - "16686:16686"  # Web UI
+    - "14250:14250"  # gRPC for collector
+  environment:
+    - COLLECTOR_OTLP_ENABLED=true
+```
+
+**Location:** `infra/docker-compose.yml:37`
+
+### Loki Integration
+
+Loki receives logs via OTLP HTTP:
+
+```yaml
+loki:
+  image: grafana/loki:main-cadc824
+  ports:
+    - "3100:3100"
+  volumes:
+    - ./loki/loki-config.yaml:/etc/loki/local-config.yaml
+```
+
+**Location:** `infra/docker-compose.yml:50`
+
+## Troubleshooting
+
+### Telemetry Not Exporting
+
+**Check collector is running:**
+```bash
+docker ps | grep otel-collector
+curl http://localhost:4317  # Should return HTTP error (expected)
+```
+
+**Check gateway logs:**
+```bash
+# Look for telemetry initialization messages
+grep -i "telemetry" gateway.log
+```
+
+**Verify configuration:**
+```bash
+cat ~/.enkrypt/enkrypt_mcp_config.json | jq '.plugins.telemetry'
+```
+
+### Connection Refused
+
+**Error:** `Telemetry enabled but endpoint localhost:4317 unreachable`
+
+**Solutions:**
+1. Start the collector: `docker-compose up -d otel-collector`
+2. Check firewall rules
+3. Verify endpoint in config matches collector address
+
+### No Traces in Jaeger
+
+1. Check collector exports to Jaeger:
+   ```bash
+   docker logs otel-collector | grep jaeger
+   ```
+
+2. Verify Jaeger OTLP is enabled:
+   ```bash
+   docker logs jaeger | grep OTLP
+   ```
+
+3. Check trace sampling (if configured)
+
+### Metrics Not in Prometheus
+
+1. Check Prometheus scrape targets:
+   ```
+   http://localhost:9090/targets
+   ```
+
+2. Verify collector Prometheus endpoint:
+   ```bash
+   curl http://localhost:8889/metrics
+   ```
+
+3. Check Prometheus config:
+   ```bash
+   cat infra/prometheus/prometheus.yml
+   ```
+
+## Performance Tuning
+
+### Batch Processing
+
+Adjust batch settings in collector config:
+
+```yaml
+processors:
+  batch:
+    timeout: 1s          # Export every 1 second
+    send_batch_size: 1024  # Or when 1024 items collected
+```
+
+### Export Interval
+
+Adjust metric export interval:
+
+```python
+reader = PeriodicExportingMetricReader(
+    otlp_exporter,
+    export_interval_millis=10000  # 10 seconds instead of 5
+)
+```
+
+### Sampling
+
+For high-volume deployments, configure trace sampling:
+
+```yaml
+processors:
+  probabilistic_sampler:
+    sampling_percentage: 10  # Sample 10% of traces
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch, probabilistic_sampler]
+      exporters: [otlp]
+```
+
+## Advanced Topics
+
+### Custom Exporters
+
+Add custom exporters to the collector:
+
+```yaml
+exporters:
+  otlphttp/custom:
+    endpoint: "https://custom-backend.example.com/v1/traces"
+    headers:
+      Authorization: "Bearer ${CUSTOM_TOKEN}"
+
+service:
+  pipelines:
+    traces:
+      exporters: [otlp, otlphttp/custom]
+```
+
+### TLS Configuration
+
+For production with TLS:
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        tls:
+          cert_file: /path/to/cert.pem
+          key_file: /path/to/key.pem
+```
+
+### Authentication
+
+Add authentication to OTLP export:
+
+```python
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
+exporter = OTLPSpanExporter(
+    endpoint="collector.example.com:4317",
+    headers=(("authorization", "Bearer YOUR_TOKEN"),)
+)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Metrics" icon="chart-column" href="/observability/metrics">
+    Explore available metrics and Grafana dashboards
+  </Card>
+  <Card title="Logging" icon="file-lines" href="/observability/logging">
+    Configure structured logging and log aggregation
+  </Card>
+  <Card title="Overview" icon="chart-line" href="/observability/overview">
+    Return to observability overview
+  </Card>
+  <Card title="Deployment" icon="server" href="/deployment/local-install">
+    Deploy the full observability stack
+  </Card>
+</CardGroup>

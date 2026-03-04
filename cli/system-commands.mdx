@@ -1,0 +1,611 @@
+---
+title: 'System Commands'
+description: 'Backup, restore, health checks, and system maintenance'
+icon: 'server'
+---
+
+## Overview
+
+System commands provide tools for maintaining the gateway infrastructure, including backup and recovery, health monitoring, and system operations.
+
+## Health Monitoring
+
+### System Health Check
+
+Perform a comprehensive health check of the gateway system.
+
+```bash
+secure-mcp-gateway system health-check
+```
+
+**Health check includes:**
+- Configuration structure validation
+- Orphaned data detection (users not in projects, configs not assigned)
+- Duplicate email detection
+- Duplicate name warnings
+- Reference integrity checks (API keys → users → projects → configs)
+- Statistics summary
+
+<ResponseExample>
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-07-16T19:30:00.000000",
+  "checks": {
+    "configuration": {
+      "status": "pass",
+      "message": "Configuration structure is valid"
+    },
+    "references": {
+      "status": "pass",
+      "message": "All references are valid"
+    },
+    "duplicates": {
+      "status": "warning",
+      "message": "Found 1 duplicate config name",
+      "details": [
+        "Config name 'dev-config' appears 2 times"
+      ]
+    },
+    "orphaned_data": {
+      "status": "pass",
+      "message": "No orphaned data found"
+    }
+  },
+  "statistics": {
+    "total_configs": 5,
+    "total_projects": 8,
+    "total_users": 12,
+    "total_api_keys": 24,
+    "active_api_keys": 22,
+    "disabled_api_keys": 2
+  }
+}
+```
+</ResponseExample>
+
+<Info>
+Run health checks regularly as part of your maintenance routine.
+</Info>
+
+## Backup and Recovery
+
+### Create System Backup
+
+Create a complete backup of the entire system configuration.
+
+```bash
+secure-mcp-gateway system backup --output-file "backup_20250716.json"
+```
+
+<ParamField path="output-file" type="string" required>
+  Path to output backup file
+</ParamField>
+
+<ResponseExample>
+```
+INFO: System backup created at backup_20250716.json
+INFO: Backup contains: 5 configs, 8 projects, 12 users, 24 API keys
+```
+</ResponseExample>
+
+**Backup file structure:**
+```json
+{
+  "backup_metadata": {
+    "version": "2.1.2",
+    "created_at": "2025-07-16T19:45:00.000000",
+    "backup_type": "full"
+  },
+  "common_mcp_gateway_config": { },
+  "plugins": { },
+  "mcp_configs": { },
+  "projects": { },
+  "users": { },
+  "apikeys": { }
+}
+```
+
+<Note>
+Backups include all configuration but do NOT include the `admin_apikey` for security.
+</Note>
+
+### Restore from Backup
+
+Restore system configuration from a backup file.
+
+```bash
+secure-mcp-gateway system restore --input-file "backup_20250716.json"
+```
+
+<ParamField path="input-file" type="string" required>
+  Path to backup file
+</ParamField>
+
+<Warning>
+This operation replaces the entire current configuration. Create a backup of the current state first.
+</Warning>
+
+**Restore process:**
+1. Validates backup file structure
+2. Creates automatic backup of current state
+3. Replaces configuration with backup data
+4. Verifies restored configuration
+
+<ResponseExample>
+```
+INFO: Current config backed up to enkrypt_mcp_config.json.bkp.20250716_194500
+INFO: Restoring from backup_20250716.json
+INFO: Restored: 5 configs, 8 projects, 12 users, 24 API keys
+INFO: Validation passed
+INFO: System restored successfully
+```
+</ResponseExample>
+
+### Automatic Backups
+
+The system automatically creates backups before major operations:
+
+- **Filename pattern:** `enkrypt_mcp_config.json.bkp.YYYYMMDD_HHMMSS`
+- **Location:** Same directory as main config file
+- **Triggered by:**
+  - System restore operations
+  - Bulk modifications
+  - Import operations
+
+<Tip>
+Automatic backups provide a safety net. Review them periodically and archive important versions.
+</Tip>
+
+### Reset System
+
+Reset the entire system to default configuration.
+
+```bash
+secure-mcp-gateway system reset --confirm
+```
+
+<ParamField path="confirm" type="flag" required>
+  Required flag to confirm destructive operation
+</ParamField>
+
+<Warning>
+**DESTRUCTIVE OPERATION**
+
+This command:
+- Deletes ALL configurations
+- Removes ALL projects
+- Deletes ALL users
+- Invalidates ALL API keys
+- Creates fresh default configuration
+
+Use with extreme caution. Always backup first.
+</Warning>
+
+## API Server Management
+
+### Start API Server
+
+Launch the REST API server for programmatic access.
+
+```bash
+secure-mcp-gateway start-api
+```
+
+**Default configuration:**
+- Host: `0.0.0.0`
+- Port: `8001`
+- Docs: `http://localhost:8001/docs`
+- OpenAPI: `http://localhost:8001/openapi.json`
+
+<Info>
+See [API Reference](/api-reference) for available endpoints and authentication.
+</Info>
+
+**Server features:**
+- Authentication with Bearer tokens
+- Automatic OpenAPI documentation
+- CORS support
+- Request validation
+- Rate limiting
+
+<Tabs>
+  <Tab title="Development">
+    ```bash
+    # Start with auto-reload for development
+    secure-mcp-gateway start-api --reload
+    ```
+  </Tab>
+  
+  <Tab title="Production">
+    ```bash
+    # Start with production settings
+    secure-mcp-gateway start-api \
+      --host 0.0.0.0 \
+      --port 8001 \
+      --workers 4
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration Management
+
+### Generate Default Config
+
+Generate a new default configuration file.
+
+```bash
+secure-mcp-gateway generate-config
+```
+
+Generates configuration at:
+- macOS/Linux: `~/.enkrypt/enkrypt_mcp_config.json`
+- Windows: `%USERPROFILE%\.enkrypt\enkrypt_mcp_config.json`
+- Docker: `/app/.enkrypt/docker/enkrypt_mcp_config.json`
+
+**Generated defaults include:**
+- Unique gateway API key
+- Secure admin API key (256 characters)
+- Default project and user
+- Sample echo server configuration
+- Plugin configurations (auth, guardrails, telemetry)
+
+### Version Information
+
+Display CLI and gateway version information.
+
+```bash
+secure-mcp-gateway --version
+```
+
+<ResponseExample>
+```
+Enkrypt Secure MCP Gateway CLI v2.1.2
+```
+</ResponseExample>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Backup Strategy">
+    **Daily backups:**
+    ```bash
+    #!/bin/bash
+    # daily_backup.sh
+    DATE=$(date +%Y%m%d)
+    secure-mcp-gateway system backup --output-file "backup_$DATE.json"
+    
+    # Keep last 7 days
+    find . -name "backup_*.json" -mtime +7 -delete
+    ```
+    
+    **Before major changes:**
+    - Always create a backup before:
+      - Bulk user/project operations
+      - Configuration imports
+      - System updates
+      - Production deployments
+    
+    **Storage:**
+    - Store backups in version control (without API keys)
+    - Use encrypted storage for full backups
+    - Maintain off-site backup copies
+    - Test restore procedures regularly
+  </Accordion>
+  
+  <Accordion title="Health Monitoring">
+    **Regular checks:**
+    ```bash
+    # Run weekly health check
+    secure-mcp-gateway system health-check > health_report_$(date +%Y%m%d).json
+    ```
+    
+    **Monitoring schedule:**
+    - Daily: Automated health checks
+    - Weekly: Manual review of reports
+    - Monthly: Deep system audit
+    - Quarterly: Backup restore testing
+    
+    **Alert conditions:**
+    - Orphaned data detected
+    - Reference integrity failures
+    - Duplicate entries found
+    - Configuration structure errors
+  </Accordion>
+  
+  <Accordion title="Maintenance Windows">
+    **Schedule regular maintenance:**
+    - System health checks
+    - Backup verification
+    - Log rotation
+    - Configuration optimization
+    - Security updates
+    
+    **Communicate with users:**
+    - Announce maintenance windows
+    - Provide status updates
+    - Document changes made
+    - Test after maintenance
+  </Accordion>
+</AccordionGroup>
+
+## Common Workflows
+
+### Daily Backup Script
+
+```bash
+#!/bin/bash
+# daily_backup.sh
+
+BACKUP_DIR="/path/to/backups"
+DATE=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="$BACKUP_DIR/gateway_backup_$DATE.json"
+
+echo "Starting daily backup at $(date)"
+
+# Create backup
+secure-mcp-gateway system backup --output-file "$BACKUP_FILE"
+
+if [ $? -eq 0 ]; then
+  echo "Backup successful: $BACKUP_FILE"
+  
+  # Compress backup
+  gzip "$BACKUP_FILE"
+  
+  # Clean old backups (keep 30 days)
+  find "$BACKUP_DIR" -name "gateway_backup_*.json.gz" -mtime +30 -delete
+  
+  echo "Backup completed at $(date)"
+else
+  echo "ERROR: Backup failed at $(date)"
+  exit 1
+fi
+```
+
+### Weekly Health Check
+
+```bash
+#!/bin/bash
+# weekly_health_check.sh
+
+REPORT_DIR="/path/to/reports"
+DATE=$(date +%Y%m%d)
+REPORT_FILE="$REPORT_DIR/health_report_$DATE.json"
+
+echo "Running weekly health check at $(date)"
+
+# Run health check
+secure-mcp-gateway system health-check > "$REPORT_FILE"
+
+# Check for issues
+STATUS=$(jq -r '.status' "$REPORT_FILE")
+
+if [ "$STATUS" = "healthy" ]; then
+  echo "System is healthy"
+elif [ "$STATUS" = "warning" ]; then
+  echo "WARNING: System has warnings"
+  jq '.checks | to_entries[] | select(.value.status == "warning")' "$REPORT_FILE"
+  # Send alert email here
+else
+  echo "ERROR: System has errors"
+  jq '.checks | to_entries[] | select(.value.status == "fail")' "$REPORT_FILE"
+  # Send urgent alert here
+fi
+
+echo "Health check completed at $(date)"
+```
+
+### Disaster Recovery
+
+```bash
+#!/bin/bash
+# disaster_recovery.sh
+
+echo "=== DISASTER RECOVERY PROCEDURE ==="
+echo "This will restore from the latest backup"
+echo ""
+
+read -p "Continue? (yes/no): " CONFIRM
+if [ "$CONFIRM" != "yes" ]; then
+  echo "Aborted"
+  exit 0
+fi
+
+# Find latest backup
+LATEST_BACKUP=$(ls -t backup_*.json 2>/dev/null | head -1)
+
+if [ -z "$LATEST_BACKUP" ]; then
+  echo "ERROR: No backup files found"
+  exit 1
+fi
+
+echo "Latest backup: $LATEST_BACKUP"
+echo ""
+
+# Backup current state
+echo "1. Backing up current state..."
+secure-mcp-gateway system backup --output-file "pre_recovery_backup.json"
+
+# Restore from backup
+echo "2. Restoring from $LATEST_BACKUP..."
+secure-mcp-gateway system restore --input-file "$LATEST_BACKUP"
+
+# Verify
+echo "3. Running health check..."
+secure-mcp-gateway system health-check
+
+echo ""
+echo "Recovery complete. Review the health check results above."
+```
+
+### System Migration
+
+```bash
+#!/bin/bash
+# migrate_system.sh
+
+SOURCE_HOST="old-server"
+SOURCE_CONFIG="~/.enkrypt/enkrypt_mcp_config.json"
+BACKUP_FILE="migration_backup.json"
+
+echo "=== SYSTEM MIGRATION ==="
+echo "Source: $SOURCE_HOST"
+echo ""
+
+# Step 1: Create backup on source
+echo "1. Creating backup on source system..."
+ssh "$SOURCE_HOST" "secure-mcp-gateway system backup --output-file /tmp/migration_backup.json"
+
+# Step 2: Transfer backup
+echo "2. Transferring backup..."
+scp "$SOURCE_HOST:/tmp/migration_backup.json" "$BACKUP_FILE"
+
+# Step 3: Verify backup
+echo "3. Verifying backup..."
+jq empty "$BACKUP_FILE"
+if [ $? -ne 0 ]; then
+  echo "ERROR: Invalid backup file"
+  exit 1
+fi
+
+# Step 4: Backup current system
+echo "4. Backing up current system..."
+secure-mcp-gateway system backup --output-file "pre_migration_backup.json"
+
+# Step 5: Restore from source
+echo "5. Restoring from source backup..."
+secure-mcp-gateway system restore --input-file "$BACKUP_FILE"
+
+# Step 6: Health check
+echo "6. Running health check..."
+secure-mcp-gateway system health-check
+
+echo ""
+echo "Migration complete. Test thoroughly before decommissioning source."
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Backup file corrupted">
+    **Error:** "Invalid JSON in backup file"
+    
+    **Solution:**
+    ```bash
+    # Validate JSON
+    jq empty backup_file.json
+    
+    # Try automatic backups
+    ls -lt ~/.enkrypt/*.bkp.*
+    
+    # Use older backup
+    secure-mcp-gateway system restore --input-file "older_backup.json"
+    ```
+  </Accordion>
+  
+  <Accordion title="Health check failures">
+    **Issue:** Health check reports errors
+    
+    **Actions:**
+    1. Review error details
+    2. Fix reported issues
+    3. Re-run health check
+    
+    **Common issues:**
+    - **Orphaned users:** Remove from system or add to projects
+    - **Invalid references:** Fix API keys pointing to non-existent projects
+    - **Duplicate names:** Rename conflicting entries
+  </Accordion>
+  
+  <Accordion title="Cannot start API server">
+    **Error:** "Port already in use"
+    
+    **Solution:**
+    ```bash
+    # Check what's using the port
+    lsof -i :8001
+    
+    # Use different port
+    secure-mcp-gateway start-api --port 8002
+    
+    # Or kill existing process
+    kill $(lsof -t -i:8001)
+    ```
+  </Accordion>
+  
+  <Accordion title="Restore fails">
+    **Error:** "Validation failed after restore"
+    
+    **Solution:**
+    ```bash
+    # Automatic backup was created
+    ls -lt ~/.enkrypt/*.bkp.*
+    
+    # Restore from automatic backup
+    secure-mcp-gateway system restore --input-file ".enkrypt/enkrypt_mcp_config.json.bkp.TIMESTAMP"
+    
+    # Contact support with error details
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Monitoring Integration
+
+### Prometheus Metrics
+
+Export health metrics for Prometheus monitoring.
+
+```bash
+# Health check with metrics export
+secure-mcp-gateway system health-check --format prometheus > /var/lib/node_exporter/textfile_collector/gateway_health.prom
+```
+
+### Log Monitoring
+
+Configure log aggregation for system events.
+
+```bash
+# Example: Forward logs to syslog
+secure-mcp-gateway start-api \
+  --log-config logging.json
+```
+
+**logging.json:**
+```json
+{
+  "version": 1,
+  "handlers": {
+    "syslog": {
+      "class": "logging.handlers.SysLogHandler",
+      "address": ["/dev/log"],
+      "facility": "local0"
+    }
+  },
+  "root": {
+    "level": "INFO",
+    "handlers": ["syslog"]
+  }
+}
+```
+
+## Security Considerations
+
+<Warning>
+**Backup Security**
+
+- Encrypt backups at rest
+- Secure transmission channels
+- Restrict backup file access
+- Exclude admin API key from exports
+- Regular security audits of backup storage
+</Warning>
+
+<Info>
+**Admin API Key**
+
+The 256-character `admin_apikey` is used for administrative REST API operations. It is:
+- Automatically generated during `generate-config`
+- NOT included in system backups for security
+- Stored only in the main config file
+- Required for admin-level API access
+</Info>

@@ -1,0 +1,422 @@
+---
+title: 'GitHub Copilot Integration'
+description: 'Protect GitHub Copilot coding sessions with Enkrypt guardrails hooks'
+icon: 'github'
+---
+
+## Overview
+
+GitHub Copilot's Coding Agent supports hooks for monitoring and controlling tool executions. The Secure MCP Gateway provides guardrails integration through hooks that validate prompts, tool inputs, and outputs.
+
+<Warning>
+**Hooks Support**: Copilot hooks work with **Copilot Coding Agent** and **Copilot CLI**, but **NOT** with VS Code Copilot Chat or inline suggestions.
+</Warning>
+
+---
+
+## Where Hooks Work
+
+| Environment | Hooks Support | Description |
+|-------------|---------------|-------------|
+| **Copilot Coding Agent** | ✅ YES | Cloud-based agent triggered via GitHub Issues/PRs |
+| **Copilot CLI** (`gh copilot`) | ✅ YES | Command-line interface for Copilot |
+| **VS Code Copilot Chat** | ❌ NO | Chat sidebar does not support hooks |
+| **Copilot Inline Suggestions** | ❌ NO | Code completions do not trigger hooks |
+
+---
+
+## Installation
+
+### Prerequisites
+
+- GitHub Copilot with coding agent hooks support
+- Python 3.8+
+- **PowerShell 7+** for Windows (required for Copilot CLI)
+- Enkrypt API key
+
+<Tip>
+**Windows Users**: Copilot CLI requires PowerShell 7+ (`pwsh.exe`), not Windows PowerShell 5.x.
+
+Install via:
+```powershell
+winget install Microsoft.PowerShell
+```
+</Tip>
+
+### Step 1: Install Dependencies
+
+```bash
+cd hooks/copilot
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r hooks/requirements.txt
+```
+
+### Step 2: Configure Guardrails
+
+```bash
+cp hooks/copilot/hooks/guardrails_config_example.json \
+   hooks/copilot/hooks/guardrails_config.json
+
+# Set API key
+export ENKRYPT_API_KEY="your-api-key"
+```
+
+---
+
+## Configuration
+
+### Hook Locations
+
+The location of `hooks.json` depends on which Copilot environment you're using:
+
+| Environment | hooks.json Location | Notes |
+|-------------|---------------------|-------|
+| **Copilot Coding Agent** | `.github/hooks/hooks.json` | Must be on the repository's default branch |
+| **Copilot CLI** | `hooks.json` (project root) | Loaded from current working directory |
+
+### Copilot Coding Agent Setup
+
+```bash
+# Create hooks directory
+mkdir -p .github/hooks
+
+# Copy template
+cp hooks/copilot/hooks_example.json .github/hooks/hooks.json
+
+# Commit and push to default branch
+git add .github/hooks/hooks.json
+git commit -m "Add Copilot hooks configuration"
+git push
+```
+
+### Copilot CLI Setup
+
+```bash
+# Copy template to project root
+cp hooks/copilot/hooks_example.json hooks.json
+```
+
+---
+
+## Hooks Configuration
+
+### hooks.json Format
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "python hooks/copilot/hooks/session_start.py",
+        "powershell": "hooks\\copilot\\venv\\Scripts\\python.exe hooks\\copilot\\hooks\\session_start.py",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "python hooks/copilot/hooks/user_prompt_submitted.py",
+        "powershell": "hooks\\copilot\\venv\\Scripts\\python.exe hooks\\copilot\\hooks\\user_prompt_submitted.py",
+        "cwd": ".",
+        "timeoutSec": 30
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "python hooks/copilot/hooks/pre_tool_use.py",
+        "powershell": "hooks\\copilot\\venv\\Scripts\\python.exe hooks\\copilot\\hooks\\pre_tool_use.py",
+        "cwd": ".",
+        "timeoutSec": 30
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": "python hooks/copilot/hooks/post_tool_use.py",
+        "powershell": "hooks\\copilot\\venv\\Scripts\\python.exe hooks\\copilot\\hooks\\post_tool_use.py",
+        "cwd": ".",
+        "timeoutSec": 30
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "python hooks/copilot/hooks/session_end.py",
+        "powershell": "hooks\\copilot\\venv\\Scripts\\python.exe hooks\\copilot\\hooks\\session_end.py",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ],
+    "errorOccurred": [
+      {
+        "type": "command",
+        "bash": "python hooks/copilot/hooks/error_occurred.py",
+        "powershell": "hooks\\copilot\\venv\\Scripts\\python.exe hooks\\copilot\\hooks\\error_occurred.py",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Hook Events
+
+| Hook | When It Runs | Can Block? | Output Fields |
+|------|--------------|------------|---------------|
+| `sessionStart` | Session begins | NO (ignored) | *none* |
+| `userPromptSubmitted` | After user submits prompt | NO (audit) | *none* |
+| `preToolUse` | Before tool executes | **YES** | `permissionDecision`, `permissionDecisionReason` |
+| `postToolUse` | After tool returns | NO (audit) | *none* |
+| `sessionEnd` | Session completes | NO (ignored) | *none* |
+| `errorOccurred` | When error occurs | NO (ignored) | *none* |
+
+<Info>
+Only `preToolUse` can block actions. All other hooks are observational.
+</Info>
+
+---
+
+## Guardrails Configuration
+
+### guardrails_config.json
+
+```json
+{
+  "enkrypt_api": {
+    "url": "https://api.enkryptai.com/guardrails/policy/detect",
+    "api_key": "YOUR_ENKRYPT_API_KEY",
+    "ssl_verify": true,
+    "timeout": 15,
+    "fail_silently": true
+  },
+  "userPromptSubmitted": {
+    "enabled": true,
+    "guardrail_name": "Sample Airline Guardrail",
+    "block": ["injection_attack", "pii", "toxicity"]
+  },
+  "preToolUse": {
+    "enabled": true,
+    "guardrail_name": "Sample Airline Guardrail",
+    "block": ["injection_attack", "pii"]
+  },
+  "postToolUse": {
+    "enabled": true,
+    "guardrail_name": "Sample Airline Guardrail",
+    "block": ["pii"]
+  },
+  "sensitive_tools": [
+    "execute_sql",
+    "delete_*",
+    "run_command"
+  ]
+}
+```
+
+### Available Detectors
+
+| Detector | Description |
+|----------|-------------|
+| `injection_attack` | Prompt injection attempts |
+| `pii` | Personal Identifiable Information |
+| `toxicity` | Toxic/harmful content |
+| `nsfw` | Not Safe For Work content |
+| `keyword_detector` | Custom banned keywords |
+| `policy_violation` | Custom policy violations |
+| `bias` | Biased content |
+| `sponge_attack` | Resource exhaustion attacks |
+| `topic_detector` | Off-topic content |
+
+---
+
+## How It Works
+
+### 1. preToolUse (BLOCKING)
+
+```text
+Tool call initiated → Hook intercepts → Enkrypt API scans → Allow or Deny
+```
+
+**Input from Copilot:**
+```json
+{
+  "timestamp": 1704614600000,
+  "cwd": "/path/to/project",
+  "toolName": "bash",
+  "toolArgs": "{\"command\": \"rm -rf /\"}"
+}
+```
+
+**Output to Copilot:**
+```json
+{
+  "permissionDecision": "deny",
+  "permissionDecisionReason": "Blocked by Enkrypt AI Guardrails:\nInjection attack pattern detected"
+}
+```
+
+### 2. userPromptSubmitted (AUDIT-ONLY)
+
+```text
+User submits prompt → Hook receives prompt → Scan for violations → Log alerts (no blocking)
+```
+
+This hook cannot block prompts — Copilot ignores its output. Violations are logged to `security_alerts.jsonl`.
+
+### 3. postToolUse (AUDIT-ONLY)
+
+```text
+Tool completes → Hook receives output → Scan for sensitive data → Log alerts
+```
+
+**Input from Copilot:**
+```json
+{
+  "timestamp": 1704614700000,
+  "cwd": "/path/to/project",
+  "toolName": "bash",
+  "toolArgs": "{\"command\": \"cat .env\"}",
+  "toolResult": {
+    "resultType": "success",
+    "textResultForLlm": "API_KEY=sk-12345..."
+  }
+}
+```
+
+---
+
+## Audit Logs
+
+All events are logged to `~/copilot/hooks_logs/`:
+
+| Log File | Contents |
+|----------|----------|
+| `sessionStart.jsonl` | Session start events |
+| `userPromptSubmitted.jsonl` | Prompt audit events |
+| `preToolUse.jsonl` | Tool input validation events |
+| `postToolUse.jsonl` | Tool output audit events |
+| `sessionEnd.jsonl` | Session end events |
+| `errorOccurred.jsonl` | Error events |
+| `combined_audit.jsonl` | All events combined |
+| `security_alerts.jsonl` | Security-related alerts |
+
+### View Logs
+
+```bash
+# View latest tool blocks
+tail -5 ~/copilot/hooks_logs/preToolUse.jsonl
+
+# View security alerts
+tail -5 ~/copilot/hooks_logs/security_alerts.jsonl
+
+# View all audit events
+tail -10 ~/copilot/hooks_logs/combined_audit.jsonl
+```
+
+---
+
+## Testing
+
+### Test Hook Manually
+
+```bash
+echo '{"timestamp":1704614600000,"cwd":".","toolName":"bash","toolArgs":"ls"}' | \
+  python hooks/copilot/hooks/pre_tool_use.py
+```
+
+Expected output:
+```json
+{"permissionDecision": "allow"}
+```
+
+---
+
+## Troubleshooting
+
+### Hooks Not Running
+
+1. Ensure hooks.json is in the correct location:
+   - **Coding Agent:** `.github/hooks/hooks.json` on default branch
+   - **Copilot CLI:** `hooks.json` in current working directory
+
+2. Verify `"version": 1` is set in hooks.json
+
+3. Check Python is accessible at the configured path
+
+4. Validate JSON syntax of hooks.json
+
+### PowerShell 7 Not Found (Windows)
+
+If you see this error with Copilot CLI:
+```
+PowerShell 6+ (pwsh) is not available. Please install it from https://aka.ms/powershell
+```
+
+**Solution:**
+1. Install PowerShell 7+:
+   ```powershell
+   winget install Microsoft.PowerShell
+   ```
+
+2. Add to system PATH:
+   - Open System Properties → Environment Variables
+   - Edit the `Path` system variable
+   - Add: `C:\Program Files\PowerShell\7`
+
+3. Restart your terminal/IDE completely
+
+4. Verify: `pwsh --version` should show `PowerShell 7.x.x`
+
+### API Returning 404
+
+The `"Policy not found"` error means:
+- The `policy_violation` detector references a non-existent policy
+- **Fix:** Disable `policy_violation` or create the policy in Enkrypt Dashboard
+
+---
+
+## Metrics
+
+```python
+from enkrypt_guardrails import get_hook_metrics
+
+metrics = get_hook_metrics("preToolUse")
+print(f"Total calls: {metrics['total_calls']}")
+print(f"Blocked calls: {metrics['blocked_calls']}")
+print(f"Avg latency: {metrics['avg_latency_ms']:.2f}ms")
+```
+
+---
+
+## Resources
+
+- [GitHub Copilot Hooks Documentation](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/use-hooks)
+- [Copilot Hooks Configuration Reference](https://docs.github.com/en/copilot/reference/hooks-configuration)
+- [Enkrypt AI Documentation](https://docs.enkryptai.com)
+- [Enkrypt Dashboard](https://app.enkryptai.com)
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configure Policies" icon="shield-halved" href="/features/guardrails">
+    Create custom guardrail policies
+  </Card>
+  <Card title="View Logs" icon="file-lines" href="/observability/logging">
+    Monitor security events
+  </Card>
+  <Card title="Add Detectors" icon="radar" href="/security/guardrail-types">
+    Configure detection rules
+  </Card>
+  <Card title="Metrics" icon="chart-simple" href="/observability/metrics">
+    Track performance
+  </Card>
+</CardGroup>

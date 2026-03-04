@@ -1,0 +1,695 @@
+---
+title: 'System Endpoints'
+description: 'REST API endpoints for system health, backup, restore, and reset operations'
+---
+
+## Overview
+
+System endpoints provide critical administrative operations for the Secure MCP Gateway, including health checks, configuration backup and restore, and system reset functionality.
+
+## Health Check
+
+Check the health and status of the API server.
+
+<Note>
+  This endpoint does **not** require authentication and can be used for monitoring and load balancer health checks.
+</Note>
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8001/health"
+```
+
+```python Python
+import requests
+
+response = requests.get("http://localhost:8001/health")
+health = response.json()
+print(f"Status: {health['message']}")
+print(f"Version: {health['data']['version']}")
+```
+
+```javascript JavaScript
+const response = await fetch('http://localhost:8001/health');
+const health = await response.json();
+console.log(`Status: ${health.message}`);
+console.log(`Version: ${health.data.version}`);
+```
+</CodeGroup>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "API server is healthy",
+  "data": {
+    "version": "2.1.2",
+    "config_path": "/home/user/.enkrypt/enkrypt_mcp_config.json"
+  },
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+<ResponseField name="message" type="string" required>
+  Server health status message
+</ResponseField>
+
+<ResponseField name="data.version" type="string" required>
+  Current gateway version
+</ResponseField>
+
+<ResponseField name="data.config_path" type="string" required>
+  Path to the active configuration file
+</ResponseField>
+
+### Use Cases
+
+**Monitoring & Alerting:**
+```bash
+#!/bin/bash
+# Health check script for monitoring
+
+HEALTH_URL="http://localhost:8001/health"
+RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "${HEALTH_URL}")
+
+if [ "${RESPONSE}" = "200" ]; then
+  echo "API server is healthy"
+  exit 0
+else
+  echo "API server is unhealthy (HTTP ${RESPONSE})"
+  exit 1
+fi
+```
+
+**Load Balancer Configuration (NGINX):**
+```nginx
+upstream gateway_api {
+  server 127.0.0.1:8001 max_fails=3 fail_timeout=30s;
+  server 127.0.0.1:8002 max_fails=3 fail_timeout=30s;
+}
+
+server {
+  location / {
+    proxy_pass http://gateway_api;
+    health_check uri=/health interval=10s fails=3 passes=2;
+  }
+}
+```
+
+**Kubernetes Liveness Probe:**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gateway-api
+spec:
+  containers:
+  - name: api
+    image: secure-mcp-gateway:latest
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8001
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8001
+      initialDelaySeconds: 10
+      periodSeconds: 5
+```
+
+---
+
+## System Health Check (Detailed)
+
+Perform a comprehensive system health check with detailed diagnostics.
+
+<Note>
+  This endpoint **requires authentication** and provides more detailed system information.
+</Note>
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8001/api/v1/system/health" \
+  -H "Authorization: Bearer ${ADMIN_KEY}"
+```
+
+```python Python
+response = requests.get(
+    "http://localhost:8001/api/v1/system/health",
+    headers={"Authorization": f"Bearer {admin_key}"}
+)
+health_data = response.json()
+```
+</CodeGroup>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "System health check completed",
+  "data": {
+    "status": "healthy",
+    "version": "2.1.2",
+    "config_path": "/home/user/.enkrypt/enkrypt_mcp_config.json",
+    "config_valid": true,
+    "total_configs": 5,
+    "total_projects": 3,
+    "total_users": 12,
+    "total_api_keys": 18,
+    "cache_enabled": true,
+    "cache_type": "external",
+    "telemetry_enabled": true,
+    "guardrails_configured": true,
+    "uptime_seconds": 86400
+  },
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+<ResponseField name="data.status" type="string" required>
+  Overall system health: `healthy`, `degraded`, or `unhealthy`
+</ResponseField>
+
+<ResponseField name="data.config_valid" type="boolean" required>
+  Whether the configuration file is valid
+</ResponseField>
+
+<ResponseField name="data.cache_type" type="string" required>
+  Cache configuration: `local` or `external`
+</ResponseField>
+
+<ResponseField name="data.uptime_seconds" type="integer" required>
+  API server uptime in seconds
+</ResponseField>
+
+---
+
+## System Backup
+
+Create a complete backup of the system configuration.
+
+<Warning>
+  Backups contain sensitive data including API keys. Store them securely.
+</Warning>
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/system/backup" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"output_file": "/path/to/backup-2024-01-01.json"}'
+```
+
+```python Python
+from datetime import datetime
+
+# Generate timestamped backup filename
+backup_file = f"/backups/gateway-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+
+response = requests.post(
+    "http://localhost:8001/api/v1/system/backup",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"output_file": backup_file}
+)
+
+if response.status_code == 200:
+    print(f"Backup created: {backup_file}")
+else:
+    print(f"Backup failed: {response.json()}")
+```
+
+```javascript JavaScript
+const backupFile = `/backups/gateway-backup-${Date.now()}.json`;
+
+const response = await fetch('http://localhost:8001/api/v1/system/backup', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${adminKey}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ output_file: backupFile })
+});
+
+const result = await response.json();
+console.log(result.message);
+```
+</CodeGroup>
+
+<ParamField body="output_file" type="string" required>
+  Absolute path where the backup file will be created
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "System backup completed successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+### Backup Contents
+
+The backup file contains:
+- All MCP configurations
+- All projects
+- All users
+- All API keys (encrypted)
+- Admin API key
+- Plugin configurations
+- Common gateway settings
+
+### Automated Backup Script
+
+```bash
+#!/bin/bash
+# automated-backup.sh - Run via cron for regular backups
+
+ADMIN_KEY="your-admin-api-key"
+BACKUP_DIR="/backups/gateway"
+RETENTION_DAYS=30
+
+# Create backup directory
+mkdir -p "${BACKUP_DIR}"
+
+# Generate backup filename with timestamp
+BACKUP_FILE="${BACKUP_DIR}/gateway-backup-$(date +%Y%m%d-%H%M%S).json"
+
+# Create backup
+curl -X POST "http://localhost:8001/api/v1/system/backup" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d "{\"output_file\": \"${BACKUP_FILE}\"}"
+
+if [ $? -eq 0 ]; then
+  echo "Backup created: ${BACKUP_FILE}"
+  
+  # Compress backup
+  gzip "${BACKUP_FILE}"
+  
+  # Delete backups older than retention period
+  find "${BACKUP_DIR}" -name "gateway-backup-*.json.gz" -mtime +${RETENTION_DAYS} -delete
+  
+  echo "Backup completed successfully"
+else
+  echo "Backup failed" >&2
+  exit 1
+fi
+```
+
+**Cron Configuration:**
+```bash
+# Run daily at 2 AM
+0 2 * * * /path/to/automated-backup.sh >> /var/log/gateway-backup.log 2>&1
+```
+
+---
+
+## System Restore
+
+Restore the system configuration from a backup file.
+
+<Warning>
+  Restore operations will **overwrite** the current configuration. Ensure you have a recent backup before restoring.
+</Warning>
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/system/restore" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"input_file": "/path/to/backup-2024-01-01.json"}'
+```
+
+```python Python
+response = requests.post(
+    "http://localhost:8001/api/v1/system/restore",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"input_file": "/backups/gateway-backup-20240101.json"}
+)
+
+if response.status_code == 200:
+    print("System restored successfully")
+    print("API server should be restarted")
+else:
+    print(f"Restore failed: {response.json()}")
+```
+</CodeGroup>
+
+<ParamField body="input_file" type="string" required>
+  Absolute path to the backup file to restore from
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "System restore completed successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+<Note>
+  After a successful restore, restart the API server and gateway for changes to take full effect.
+</Note>
+
+### Restore with Verification
+
+```python
+import requests
+import json
+
+def restore_with_verification(backup_file, admin_key):
+    """Restore with pre and post verification"""
+    base_url = "http://localhost:8001/api/v1"
+    headers = {"Authorization": f"Bearer {admin_key}"}
+    
+    # Step 1: Verify backup file exists and is valid JSON
+    try:
+        with open(backup_file, 'r') as f:
+            backup_data = json.load(f)
+        print(f"✓ Backup file is valid JSON")
+    except Exception as e:
+        print(f"✗ Invalid backup file: {e}")
+        return False
+    
+    # Step 2: Create pre-restore backup
+    pre_restore_backup = f"{backup_file}.pre-restore"
+    response = requests.post(
+        f"{base_url}/system/backup",
+        headers=headers,
+        json={"output_file": pre_restore_backup}
+    )
+    
+    if response.status_code != 200:
+        print(f"✗ Failed to create pre-restore backup")
+        return False
+    print(f"✓ Pre-restore backup created: {pre_restore_backup}")
+    
+    # Step 3: Perform restore
+    response = requests.post(
+        f"{base_url}/system/restore",
+        headers=headers,
+        json={"input_file": backup_file}
+    )
+    
+    if response.status_code != 200:
+        print(f"✗ Restore failed: {response.json()}")
+        return False
+    print(f"✓ Restore completed")
+    
+    # Step 4: Verify restore
+    response = requests.get(
+        f"{base_url}/system/health",
+        headers=headers
+    )
+    
+    if response.status_code == 200:
+        health = response.json()["data"]
+        print(f"✓ System health check passed")
+        print(f"  Configs: {health['total_configs']}")
+        print(f"  Projects: {health['total_projects']}")
+        print(f"  Users: {health['total_users']}")
+        return True
+    else:
+        print(f"✗ Post-restore health check failed")
+        return False
+
+# Usage
+restore_with_verification(
+    "/backups/gateway-backup-20240101.json",
+    "your-admin-key"
+)
+```
+
+---
+
+## System Reset
+
+Reset the system to default configuration, removing all configurations, projects, users, and API keys.
+
+<Warning>
+  **DANGER:** This operation is irreversible and will delete all data. Always create a backup before resetting.
+</Warning>
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8001/api/v1/system/reset" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"confirm": true}'
+```
+
+```python Python
+# Reset requires explicit confirmation
+response = requests.post(
+    "http://localhost:8001/api/v1/system/reset",
+    headers={"Authorization": f"Bearer {admin_key}"},
+    json={"confirm": True}
+)
+
+if response.status_code == 200:
+    print("System reset successfully")
+    print("All data has been deleted")
+else:
+    print(f"Reset failed: {response.json()}")
+```
+</CodeGroup>
+
+<ParamField body="confirm" type="boolean" required>
+  Must be `true` to confirm the reset operation
+</ParamField>
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "System reset completed successfully",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+**Error Response:** `400 Bad Request` (if confirm is not true)
+
+```json
+{
+  "error": "System reset failed",
+  "detail": "Reset requires confirm=true",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+### Safe Reset Procedure
+
+```python
+import requests
+
+def safe_system_reset(admin_key):
+    """Safely reset system with backup"""
+    base_url = "http://localhost:8001/api/v1"
+    headers = {"Authorization": f"Bearer {admin_key}"}
+    
+    # Step 1: Create backup
+    print("Creating backup before reset...")
+    backup_file = "/backups/pre-reset-backup.json"
+    
+    response = requests.post(
+        f"{base_url}/system/backup",
+        headers=headers,
+        json={"output_file": backup_file}
+    )
+    
+    if response.status_code != 200:
+        print("Failed to create backup. Aborting reset.")
+        return False
+    
+    print(f"Backup created: {backup_file}")
+    
+    # Step 2: Confirm with user
+    confirmation = input(
+        "\nWARNING: This will delete ALL data.\n"
+        "Type 'RESET' to confirm: "
+    )
+    
+    if confirmation != "RESET":
+        print("Reset cancelled.")
+        return False
+    
+    # Step 3: Perform reset
+    print("Performing system reset...")
+    response = requests.post(
+        f"{base_url}/system/reset",
+        headers=headers,
+        json={"confirm": True}
+    )
+    
+    if response.status_code == 200:
+        print("System reset completed successfully")
+        print(f"Backup available at: {backup_file}")
+        return True
+    else:
+        print(f"Reset failed: {response.json()}")
+        return False
+
+# Usage
+safe_system_reset("your-admin-key")
+```
+
+---
+
+## Disaster Recovery
+
+### Complete DR Workflow
+
+```python
+class DisasterRecovery:
+    def __init__(self, base_url, admin_key):
+        self.base_url = base_url
+        self.headers = {
+            "Authorization": f"Bearer {admin_key}",
+            "Content-Type": "application/json"
+        }
+    
+    def create_backup(self, backup_path):
+        """Create system backup"""
+        response = requests.post(
+            f"{self.base_url}/system/backup",
+            headers=self.headers,
+            json={"output_file": backup_path}
+        )
+        return response.status_code == 200
+    
+    def verify_backup(self, backup_path):
+        """Verify backup file integrity"""
+        try:
+            with open(backup_path, 'r') as f:
+                data = json.load(f)
+            
+            required_keys = [
+                "admin_apikey",
+                "mcp_configs",
+                "projects",
+                "users",
+                "apikeys"
+            ]
+            
+            return all(key in data for key in required_keys)
+        except Exception as e:
+            print(f"Backup verification failed: {e}")
+            return False
+    
+    def restore_backup(self, backup_path):
+        """Restore from backup"""
+        if not self.verify_backup(backup_path):
+            print("Backup verification failed")
+            return False
+        
+        response = requests.post(
+            f"{self.base_url}/system/restore",
+            headers=self.headers,
+            json={"input_file": backup_path}
+        )
+        return response.status_code == 200
+    
+    def test_restore(self, backup_path):
+        """Test restore in a safe way"""
+        # Create current state backup
+        current_backup = f"{backup_path}.current"
+        if not self.create_backup(current_backup):
+            print("Failed to create current state backup")
+            return False
+        
+        # Attempt restore
+        if self.restore_backup(backup_path):
+            print("Test restore successful")
+            # Restore original state
+            self.restore_backup(current_backup)
+            return True
+        else:
+            print("Test restore failed")
+            return False
+
+# Usage
+dr = DisasterRecovery(
+    base_url="http://localhost:8001/api/v1",
+    admin_key="your-admin-key"
+)
+
+# Regular backup
+dr.create_backup("/backups/daily-backup.json")
+
+# Test restore procedure
+dr.test_restore("/backups/daily-backup.json")
+
+# Actual disaster recovery
+if disaster_detected:
+    dr.restore_backup("/backups/latest-backup.json")
+```
+
+---
+
+## Monitoring Examples
+
+### Health Check Monitoring Script
+
+```bash
+#!/bin/bash
+# monitor-health.sh - Continuous health monitoring
+
+API_URL="http://localhost:8001"
+ADMIN_KEY="your-admin-key"
+SLACK_WEBHOOK="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+CHECK_INTERVAL=60  # seconds
+
+function send_alert() {
+  local message="$1"
+  curl -X POST "${SLACK_WEBHOOK}" \
+    -H "Content-Type: application/json" \
+    -d "{\"text\": \"🚨 Gateway Alert: ${message}\"}"
+}
+
+while true; do
+  # Basic health check
+  RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "${API_URL}/health")
+  
+  if [ "${RESPONSE}" != "200" ]; then
+    send_alert "API server is down (HTTP ${RESPONSE})"
+  else
+    # Detailed health check
+    HEALTH_DATA=$(curl -s "${API_URL}/api/v1/system/health" \
+      -H "Authorization: Bearer ${ADMIN_KEY}")
+    
+    STATUS=$(echo "${HEALTH_DATA}" | jq -r '.data.status')
+    
+    if [ "${STATUS}" != "healthy" ]; then
+      send_alert "System status is ${STATUS}"
+    fi
+  fi
+  
+  sleep "${CHECK_INTERVAL}"
+done
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Endpoints" icon="gear" href="/api/configurations">
+    Manage MCP configurations
+  </Card>
+  <Card title="User Management" icon="users" href="/api/users">
+    Create and manage users
+  </Card>
+  <Card title="API Keys" icon="key" href="/api/api-keys">
+    Manage API keys
+  </Card>
+  <Card title="Projects" icon="folder" href="/api/projects">
+    Project management
+  </Card>
+</CardGroup>

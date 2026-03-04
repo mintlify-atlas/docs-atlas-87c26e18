@@ -1,0 +1,601 @@
+---
+title: 'Configuration Commands'
+description: 'Manage MCP configurations, servers, and guardrails'
+icon: 'gear'
+---
+
+## Overview
+
+Configuration commands manage MCP configurations, servers, and their associated guardrails policies. Each configuration is a collection of MCP servers with their settings.
+
+## Configuration Management
+
+### List Configurations
+
+List all MCP configurations in the system.
+
+```bash
+secure-mcp-gateway config list
+```
+
+<ResponseExample>
+```json
+[
+  {
+    "mcp_config_id": "fcbd4508-1432-4f13-abb9-c495c946f638",
+    "mcp_config_name": "default_config",
+    "servers": 2,
+    "used_by_projects": [
+      {
+        "project_id": "3c09f06c-1f0d-4153-9ac5-366397937641",
+        "project_name": "default_project"
+      }
+    ]
+  }
+]
+```
+</ResponseExample>
+
+### Add Configuration
+
+Create a new MCP configuration.
+
+```bash
+secure-mcp-gateway config add --config-name "production-config"
+```
+
+<ParamField path="config-name" type="string" required>
+  Name for the new configuration (must be unique)
+</ParamField>
+
+<ResponseExample>
+```
+mcp_config_id: f957f1b2-c77a-4de6-a53a-3d09784be777
+```
+</ResponseExample>
+
+### Get Configuration
+
+Retrieve details of a specific configuration.
+
+```bash
+# By name
+secure-mcp-gateway config get --config-name "production-config"
+
+# By ID
+secure-mcp-gateway config get --config-id "f957f1b2-c77a-4de6-a53a-3d09784be777"
+```
+
+<ParamField path="config-name" type="string">
+  Configuration name
+</ParamField>
+
+<ParamField path="config-id" type="string">
+  Configuration UUID
+</ParamField>
+
+<Note>
+You must provide either `--config-name` or `--config-id`, not both.
+</Note>
+
+### Copy Configuration
+
+Duplicate an existing configuration with a new name.
+
+```bash
+secure-mcp-gateway config copy \
+  --source-config "production-config" \
+  --target-config "staging-config"
+```
+
+<ParamField path="source-config" type="string" required>
+  Name or ID of the source configuration
+</ParamField>
+
+<ParamField path="target-config" type="string" required>
+  Name for the new configuration copy
+</ParamField>
+
+### Rename Configuration
+
+Change the name of an existing configuration.
+
+```bash
+secure-mcp-gateway config rename \
+  --config-name "old-name" \
+  --new-name "new-name"
+```
+
+<ParamField path="config-name" type="string" required>
+  Current configuration name or ID
+</ParamField>
+
+<ParamField path="new-name" type="string" required>
+  New name for the configuration
+</ParamField>
+
+### Remove Configuration
+
+Delete a configuration (must not be in use by any projects).
+
+```bash
+secure-mcp-gateway config remove --config-name "old-config"
+```
+
+<Warning>
+You cannot remove a configuration that is assigned to projects. Unassign it from all projects first.
+</Warning>
+
+## Server Management
+
+### List Servers
+
+List all servers in a configuration.
+
+```bash
+secure-mcp-gateway config list-servers --config-name "production-config"
+```
+
+<ResponseExample>
+```json
+[
+  {
+    "server_name": "github-mcp",
+    "description": "GitHub MCP Server",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "tools": 0,
+    "input_guardrails_enabled": true,
+    "output_guardrails_enabled": true
+  }
+]
+```
+</ResponseExample>
+
+### Add Server
+
+Add a new MCP server to a configuration.
+
+<Tabs>
+  <Tab title="Basic Server">
+    ```bash
+    secure-mcp-gateway config add-server \
+      --config-name "production-config" \
+      --server-name "web-server" \
+      --server-command "python" \
+      --args="server.py" \
+      --description "Web server"
+    ```
+  </Tab>
+  
+  <Tab title="With Multiple Args">
+    ```bash
+    secure-mcp-gateway config add-server \
+      --config-name "production-config" \
+      --server-name "github-mcp" \
+      --server-command "npx" \
+      --args="-y,@modelcontextprotocol/server-github" \
+      --description "GitHub MCP Server"
+    ```
+    
+    <Note>
+    Use comma-separated values for multiple arguments. The `=` sign is required when args start with `-`.
+    </Note>
+  </Tab>
+  
+  <Tab title="With Environment Variables">
+    ```bash
+    secure-mcp-gateway config add-server \
+      --config-name "production-config" \
+      --server-name "db-server" \
+      --server-command "python" \
+      --args="db.py" \
+      --env '{"DB_HOST": "localhost", "DB_PORT": "5432", "DEBUG": "true"}' \
+      --description "Database server with env vars"
+    ```
+  </Tab>
+  
+  <Tab title="With Guardrails">
+    ```bash
+    secure-mcp-gateway config add-server \
+      --config-name "production-config" \
+      --server-name "secure-server" \
+      --server-command "python" \
+      --args="secure.py" \
+      --input-guardrails-policy '{"enabled": true, "policy_name": "Input Security Policy", "additional_config": {"pii_redaction": true}, "block": ["policy_violation", "injection_attack"]}' \
+      --description "Server with input guardrails"
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="config-name" type="string" required>
+  Configuration name or ID
+</ParamField>
+
+<ParamField path="server-name" type="string" required>
+  Unique server name within the configuration
+</ParamField>
+
+<ParamField path="server-command" type="string" required>
+  Command to execute (e.g., python, npx, node)
+</ParamField>
+
+<ParamField path="args" type="string">
+  Comma-separated command arguments
+</ParamField>
+
+<ParamField path="env" type="json">
+  Environment variables as JSON object
+</ParamField>
+
+<ParamField path="tools" type="json">
+  Tool configuration as JSON object
+</ParamField>
+
+<ParamField path="description" type="string">
+  Server description
+</ParamField>
+
+<ParamField path="input-guardrails-policy" type="json">
+  Input guardrails configuration
+</ParamField>
+
+<ParamField path="output-guardrails-policy" type="json">
+  Output guardrails configuration
+</ParamField>
+
+### Get Server
+
+Retrieve details of a specific server.
+
+```bash
+secure-mcp-gateway config get-server \
+  --config-name "production-config" \
+  --server-name "github-mcp"
+```
+
+### Update Server
+
+Modify server configuration.
+
+```bash
+secure-mcp-gateway config update-server \
+  --config-name "production-config" \
+  --server-name "web-server" \
+  --server-command "node" \
+  --args="app.js" \
+  --description "Updated web server"
+```
+
+### Remove Server
+
+Delete a server from configuration.
+
+```bash
+secure-mcp-gateway config remove-server \
+  --config-name "production-config" \
+  --server-name "old-server"
+```
+
+### Remove All Servers
+
+Remove all servers from a configuration.
+
+```bash
+secure-mcp-gateway config remove-all-servers --config-name "production-config"
+```
+
+## Guardrails Management
+
+### Update Input Guardrails
+
+Configure input protection for a server.
+
+<Tabs>
+  <Tab title="JSON String">
+    ```bash
+    secure-mcp-gateway config update-server-input-guardrails \
+      --config-name "production-config" \
+      --server-name "github-mcp" \
+      --policy '{"enabled": true, "policy_name": "Custom Policy", "additional_config": {"pii_redaction": true}, "block": ["policy_violation", "injection_attack"]}'
+    ```
+  </Tab>
+  
+  <Tab title="From File">
+    ```bash
+    secure-mcp-gateway config update-server-input-guardrails \
+      --config-name "production-config" \
+      --server-name "github-mcp" \
+      --policy-file "input_policy.json"
+    ```
+    
+    **input_policy.json:**
+    ```json
+    {
+      "enabled": true,
+      "policy_name": "Input Security Policy",
+      "additional_config": {
+        "pii_redaction": true,
+        "content_filtering": true
+      },
+      "block": [
+        "policy_violation",
+        "injection_attack",
+        "topic_detector",
+        "nsfw",
+        "toxicity",
+        "pii"
+      ]
+    }
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="config-name" type="string" required>
+  Configuration name or ID
+</ParamField>
+
+<ParamField path="server-name" type="string" required>
+  Server name
+</ParamField>
+
+<ParamField path="policy" type="json">
+  Policy configuration as JSON string
+</ParamField>
+
+<ParamField path="policy-file" type="string">
+  Path to JSON file containing policy
+</ParamField>
+
+<Note>
+Provide either `--policy` or `--policy-file`, not both.
+</Note>
+
+### Update Output Guardrails
+
+Configure output protection for a server.
+
+```bash
+secure-mcp-gateway config update-server-output-guardrails \
+  --config-name "production-config" \
+  --server-name "github-mcp" \
+  --policy-file "output_policy.json"
+```
+
+**output_policy.json:**
+```json
+{
+  "enabled": true,
+  "policy_name": "Output Security Policy",
+  "additional_config": {
+    "relevancy": true,
+    "hallucination": true,
+    "adherence": true,
+    "toxicity_filter": true
+  },
+  "block": [
+    "policy_violation",
+    "injection_attack",
+    "harmful_content"
+  ]
+}
+```
+
+### Update Both Guardrails
+
+Update input and output guardrails together.
+
+```bash
+secure-mcp-gateway config update-server-guardrails \
+  --config-name "production-config" \
+  --server-name "github-mcp" \
+  --input-policy-file "input_policy.json" \
+  --output-policy-file "output_policy.json"
+```
+
+<ParamField path="input-policy" type="json">
+  Input policy as JSON string
+</ParamField>
+
+<ParamField path="input-policy-file" type="string">
+  Path to input policy JSON file
+</ParamField>
+
+<ParamField path="output-policy" type="json">
+  Output policy as JSON string
+</ParamField>
+
+<ParamField path="output-policy-file" type="string">
+  Path to output policy JSON file
+</ParamField>
+
+## Plugin Configuration
+
+### Set Enkrypt API Key
+
+Configure the API key for Enkrypt guardrails.
+
+```bash
+secure-mcp-gateway config set-enkrypt-api-key \
+  --api-key "your-enkrypt-api-key-here"
+```
+
+### Get Enkrypt API Key
+
+Retrieve the configured Enkrypt API key.
+
+```bash
+secure-mcp-gateway config get-enkrypt-api-key
+```
+
+### Configure Telemetry
+
+Manage OpenTelemetry settings.
+
+```bash
+# Enable telemetry
+secure-mcp-gateway config configure-telemetry --enabled true
+
+# Set collector URL
+secure-mcp-gateway config configure-telemetry --url "http://localhost:4317"
+
+# Configure for local development
+secure-mcp-gateway config configure-telemetry \
+  --enabled true \
+  --url "http://localhost:4317" \
+  --insecure true
+```
+
+<ParamField path="enabled" type="boolean">
+  Enable or disable telemetry
+</ParamField>
+
+<ParamField path="url" type="string">
+  OpenTelemetry collector URL
+</ParamField>
+
+<ParamField path="insecure" type="boolean">
+  Allow insecure connections (for local development)
+</ParamField>
+
+## Utility Commands
+
+### List Projects Using Config
+
+Show which projects are using a configuration.
+
+```bash
+secure-mcp-gateway config list-projects --config-name "production-config"
+```
+
+### Validate Configuration
+
+Check configuration structure and integrity.
+
+```bash
+secure-mcp-gateway config validate --config-name "production-config"
+```
+
+<ResponseExample>
+```
+INFO: Config 'production-config' is valid
+```
+</ResponseExample>
+
+### Export Configuration
+
+Export configuration to a JSON file.
+
+```bash
+secure-mcp-gateway config export \
+  --config-name "production-config" \
+  --output-file "prod-config.json"
+```
+
+### Import Configuration
+
+Import configuration from a JSON file.
+
+```bash
+secure-mcp-gateway config import \
+  --input-file "prod-config.json" \
+  --config-name "imported-config"
+```
+
+### Search Configurations
+
+Search for configurations by name or server name.
+
+```bash
+secure-mcp-gateway config search --search-term "github"
+```
+
+<ResponseExample>
+```json
+[
+  {
+    "mcp_config_id": "f957f1b2-c77a-4de6-a53a-3d09784be777",
+    "mcp_config_name": "production-config",
+    "match_type": "server_name",
+    "servers": 3
+  }
+]
+```
+</ResponseExample>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Naming Conventions">
+    - Use descriptive config names: `production-web-servers` vs `config1`
+    - Include environment in name: `dev-config`, `staging-config`, `prod-config`
+    - Use consistent naming across related configs
+  </Accordion>
+  
+  <Accordion title="Server Organization">
+    - Group related servers in the same configuration
+    - Separate development and production servers
+    - Document server purposes in descriptions
+  </Accordion>
+  
+  <Accordion title="Guardrails Configuration">
+    - Enable guardrails for production servers
+    - Test policies in development first
+    - Use PII redaction for sensitive data
+    - Regular policy reviews and updates
+  </Accordion>
+  
+  <Accordion title="Version Control">
+    - Export configs for backup
+    - Store exported configs in version control
+    - Test imports before applying to production
+    - Document configuration changes
+  </Accordion>
+</AccordionGroup>
+
+## Common Workflows
+
+### Setup Production Configuration
+
+```bash
+# 1. Create configuration
+secure-mcp-gateway config add --config-name "production-config"
+
+# 2. Add servers
+secure-mcp-gateway config add-server \
+  --config-name "production-config" \
+  --server-name "github-mcp" \
+  --server-command "npx" \
+  --args="-y,@modelcontextprotocol/server-github" \
+  --description "GitHub MCP Server"
+
+# 3. Configure guardrails
+secure-mcp-gateway config update-server-guardrails \
+  --config-name "production-config" \
+  --server-name "github-mcp" \
+  --input-policy-file "input_policy.json" \
+  --output-policy-file "output_policy.json"
+
+# 4. Validate
+secure-mcp-gateway config validate --config-name "production-config"
+
+# 5. Export for backup
+secure-mcp-gateway config export \
+  --config-name "production-config" \
+  --output-file "production-backup.json"
+```
+
+### Clone Configuration for Testing
+
+```bash
+# 1. Copy production config
+secure-mcp-gateway config copy \
+  --source-config "production-config" \
+  --target-config "test-config"
+
+# 2. Modify test config as needed
+secure-mcp-gateway config update-server \
+  --config-name "test-config" \
+  --server-name "github-mcp" \
+  --env '{"DEBUG": "true"}'
+```

@@ -1,0 +1,513 @@
+---
+title: 'Project Commands'
+description: 'Manage projects, config assignments, and user memberships'
+icon: 'folder'
+---
+
+## Overview
+
+Projects organize users and configurations. Each project has an assigned MCP configuration that defines available servers, and users who can access those servers through project-specific API keys.
+
+## Project Management
+
+### List Projects
+
+List all projects in the system.
+
+```bash
+secure-mcp-gateway project list
+```
+
+<ResponseExample>
+```json
+[
+  {
+    "project_name": "Production Project",
+    "project_id": "3c09f06c-1f0d-4153-9ac5-366397937641",
+    "mcp_config": {
+      "mcp_config_id": "fcbd4508-1432-4f13-abb9-c495c946f638",
+      "mcp_config_name": "production-config"
+    },
+    "users": 3,
+    "api_keys": 5,
+    "created_at": "2025-07-16T17:02:00.406877"
+  }
+]
+```
+</ResponseExample>
+
+### Create Project
+
+Create a new project.
+
+```bash
+secure-mcp-gateway project create --project-name "Development Project"
+```
+
+<ParamField path="project-name" type="string" required>
+  Unique name for the project
+</ParamField>
+
+<ResponseExample>
+```
+project_id: 5d1b268b-0e39-447b-aa69-37f3df1596b2
+```
+</ResponseExample>
+
+### Get Project
+
+Retrieve detailed information about a project.
+
+```bash
+# By name
+secure-mcp-gateway project get --project-name "Development Project"
+
+# By ID
+secure-mcp-gateway project get --project-id "5d1b268b-0e39-447b-aa69-37f3df1596b2"
+```
+
+<ParamField path="project-name" type="string">
+  Project name
+</ParamField>
+
+<ParamField path="project-id" type="string">
+  Project UUID
+</ParamField>
+
+<ResponseExample>
+```json
+{
+  "project_id": "5d1b268b-0e39-447b-aa69-37f3df1596b2",
+  "project_name": "Development Project",
+  "mcp_config": {
+    "mcp_config_id": "fcbd4508-1432-4f13-abb9-c495c946f638",
+    "mcp_config_name": "dev-config"
+  },
+  "users": [
+    {
+      "user_id": "6469a670-1d64-4da5-b2b3-790de21ac726",
+      "email": "dev@example.com",
+      "created_at": "2025-07-16T17:02:00.406902"
+    }
+  ],
+  "api_keys": 2,
+  "created_at": "2025-07-16T17:02:00.406877"
+}
+```
+</ResponseExample>
+
+### Remove Project
+
+Delete a project (must not have active API keys).
+
+```bash
+secure-mcp-gateway project remove --project-name "Old Project"
+```
+
+<Warning>
+Delete all API keys for the project before removing it.
+</Warning>
+
+## Configuration Assignment
+
+### Assign Configuration
+
+Assign an MCP configuration to a project.
+
+```bash
+secure-mcp-gateway project assign-config \
+  --project-name "Development Project" \
+  --config-name "dev-config"
+```
+
+<ParamField path="project-name" type="string" required>
+  Project name or ID
+</ParamField>
+
+<ParamField path="config-name" type="string" required>
+  Configuration name or ID to assign
+</ParamField>
+
+<ResponseExample>
+```
+INFO: Config 'dev-config' assigned to project 'Development Project'
+```
+</ResponseExample>
+
+### Unassign Configuration
+
+Remove the configuration assignment from a project.
+
+```bash
+secure-mcp-gateway project unassign-config --project-name "Development Project"
+```
+
+### Get Project Configuration
+
+Retrieve the configuration assigned to a project.
+
+```bash
+secure-mcp-gateway project get-config --project-name "Development Project"
+```
+
+<ResponseExample>
+```json
+{
+  "mcp_config_id": "fcbd4508-1432-4f13-abb9-c495c946f638",
+  "mcp_config_name": "dev-config",
+  "mcp_config": [
+    {
+      "server_name": "github-mcp",
+      "description": "GitHub MCP Server",
+      "config": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"]
+      },
+      "tools": {},
+      "input_guardrails_policy": {
+        "enabled": false
+      },
+      "output_guardrails_policy": {
+        "enabled": false
+      }
+    }
+  ]
+}
+```
+</ResponseExample>
+
+## User Management
+
+### List Project Users
+
+List all users in a project.
+
+```bash
+secure-mcp-gateway project list-users --project-name "Development Project"
+```
+
+<ResponseExample>
+```json
+[
+  {
+    "user_id": "6469a670-1d64-4da5-b2b3-790de21ac726",
+    "email": "dev@example.com",
+    "api_keys": 2,
+    "created_at": "2025-07-16T17:02:00.406902"
+  }
+]
+```
+</ResponseExample>
+
+### Add User to Project
+
+Add an existing user to a project.
+
+```bash
+# By email
+secure-mcp-gateway project add-user \
+  --project-name "Development Project" \
+  --email "user@example.com"
+
+# By user ID
+secure-mcp-gateway project add-user \
+  --project-id "5d1b268b-0e39-447b-aa69-37f3df1596b2" \
+  --user-id "6469a670-1d64-4da5-b2b3-790de21ac726"
+```
+
+<ParamField path="project-name" type="string" required>
+  Project name or ID
+</ParamField>
+
+<ParamField path="email" type="string">
+  User email address
+</ParamField>
+
+<ParamField path="user-id" type="string">
+  User UUID
+</ParamField>
+
+<Note>
+The user must already exist in the system. Create the user first with `secure-mcp-gateway user create`.
+</Note>
+
+### Remove User from Project
+
+Remove a user from a project.
+
+```bash
+secure-mcp-gateway project remove-user \
+  --project-name "Development Project" \
+  --email "user@example.com"
+```
+
+<Warning>
+This does not delete the user's API keys for this project. Delete them separately if needed.
+</Warning>
+
+### Remove All Users
+
+Remove all users from a project.
+
+```bash
+secure-mcp-gateway project remove-all-users --project-name "Development Project"
+```
+
+## Import/Export
+
+### Export Project
+
+Export project with all related data to a JSON file.
+
+```bash
+secure-mcp-gateway project export \
+  --project-name "Development Project" \
+  --output-file "dev-project-export.json"
+```
+
+<ParamField path="output-file" type="string" required>
+  Path to output JSON file
+</ParamField>
+
+<ResponseExample>
+```
+INFO: Project 'Development Project' exported to dev-project-export.json
+```
+</ResponseExample>
+
+**Export file structure:**
+```json
+{
+  "project_id": "5d1b268b-0e39-447b-aa69-37f3df1596b2",
+  "exported_at": "2025-07-16T18:30:00.000000",
+  "project": {
+    "project_name": "Development Project",
+    "mcp_config_id": "fcbd4508-1432-4f13-abb9-c495c946f638",
+    "users": ["6469a670-1d64-4da5-b2b3-790de21ac726"],
+    "created_at": "2025-07-16T17:02:00.406877"
+  },
+  "config": {
+    "mcp_config_name": "dev-config",
+    "mcp_config": []
+  },
+  "users": [
+    {
+      "user_id": "6469a670-1d64-4da5-b2b3-790de21ac726",
+      "email": "dev@example.com",
+      "created_at": "2025-07-16T17:02:00.406902"
+    }
+  ]
+}
+```
+
+## Search
+
+### Search Projects
+
+Search for projects by name or user email.
+
+```bash
+secure-mcp-gateway project search --search-term "development"
+```
+
+<ParamField path="search-term" type="string" required>
+  Search term to match against project names and user emails
+</ParamField>
+
+<ResponseExample>
+```json
+[
+  {
+    "project_id": "5d1b268b-0e39-447b-aa69-37f3df1596b2",
+    "project_name": "Development Project",
+    "match_type": "project_name",
+    "users": 3
+  }
+]
+```
+</ResponseExample>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Project Organization">
+    - **Separate environments**: Create distinct projects for dev, staging, and production
+    - **Team-based projects**: Organize by team or department
+    - **Purpose-based naming**: Use clear, descriptive project names
+    - **Documentation**: Maintain project purpose and ownership records
+  </Accordion>
+  
+  <Accordion title="Configuration Management">
+    - **Environment-specific configs**: Assign appropriate configs to each project
+    - **Testing before production**: Test config changes in dev projects first
+    - **Regular reviews**: Periodically review project configurations
+    - **Change tracking**: Document configuration changes
+  </Accordion>
+  
+  <Accordion title="User Access">
+    - **Principle of least privilege**: Only add users who need access
+    - **Regular audits**: Review project membership periodically
+    - **Offboarding**: Remove users when they leave teams
+    - **Role separation**: Use different projects for different access levels
+  </Accordion>
+  
+  <Accordion title="API Key Management">
+    - **One key per user per project**: Generate individual keys
+    - **Regular rotation**: Rotate keys periodically
+    - **Monitor usage**: Track API key usage patterns
+    - **Quick revocation**: Be prepared to revoke compromised keys
+  </Accordion>
+</AccordionGroup>
+
+## Common Workflows
+
+### Create New Project with Users
+
+```bash
+# 1. Create project
+secure-mcp-gateway project create --project-name "New Team Project"
+
+# 2. Assign configuration
+secure-mcp-gateway project assign-config \
+  --project-name "New Team Project" \
+  --config-name "team-config"
+
+# 3. Create users (if they don't exist)
+secure-mcp-gateway user create --email "member1@example.com"
+secure-mcp-gateway user create --email "member2@example.com"
+
+# 4. Add users to project
+secure-mcp-gateway project add-user \
+  --project-name "New Team Project" \
+  --email "member1@example.com"
+  
+secure-mcp-gateway project add-user \
+  --project-name "New Team Project" \
+  --email "member2@example.com"
+
+# 5. Generate API keys for each user
+secure-mcp-gateway user generate-api-key \
+  --email "member1@example.com" \
+  --project-name "New Team Project"
+  
+secure-mcp-gateway user generate-api-key \
+  --email "member2@example.com" \
+  --project-name "New Team Project"
+```
+
+### Migrate Project to New Configuration
+
+```bash
+# 1. Export current project
+secure-mcp-gateway project export \
+  --project-name "My Project" \
+  --output-file "project-backup.json"
+
+# 2. Create new configuration
+secure-mcp-gateway config add --config-name "new-config"
+
+# 3. Add servers to new config
+# (Add server commands here)
+
+# 4. Assign new config to project
+secure-mcp-gateway project assign-config \
+  --project-name "My Project" \
+  --config-name "new-config"
+
+# 5. Test with development project first
+secure-mcp-gateway project create --project-name "Test Migration"
+secure-mcp-gateway project assign-config \
+  --project-name "Test Migration" \
+  --config-name "new-config"
+```
+
+### Team Offboarding
+
+```bash
+# 1. List user's API keys
+secure-mcp-gateway user list-api-keys --email "leaving@example.com"
+
+# 2. Delete all API keys
+secure-mcp-gateway user delete-all-api-keys --email "leaving@example.com"
+
+# 3. Remove from all projects
+# First, find their projects
+secure-mcp-gateway user list-projects --email "leaving@example.com"
+
+# Then remove from each
+secure-mcp-gateway project remove-user \
+  --project-name "Project 1" \
+  --email "leaving@example.com"
+
+# 4. Optionally delete user
+secure-mcp-gateway user delete --email "leaving@example.com"
+```
+
+### Bulk User Addition
+
+```bash
+#!/bin/bash
+# add_team_members.sh
+
+PROJECT_NAME="Team Project"
+USERS=("user1@example.com" "user2@example.com" "user3@example.com")
+
+for EMAIL in "${USERS[@]}"; do
+  echo "Processing $EMAIL..."
+  
+  # Create user if doesn't exist
+  secure-mcp-gateway user create --email "$EMAIL" 2>/dev/null || true
+  
+  # Add to project
+  secure-mcp-gateway project add-user \
+    --project-name "$PROJECT_NAME" \
+    --email "$EMAIL"
+  
+  # Generate API key
+  secure-mcp-gateway user generate-api-key \
+    --email "$EMAIL" \
+    --project-name "$PROJECT_NAME"
+    
+  echo "Completed $EMAIL"
+  echo "---"
+done
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Cannot remove project - has active API keys">
+    **Error:** "Project has X active API keys"
+    
+    **Solution:**
+    ```bash
+    # List all API keys for the project
+    secure-mcp-gateway project list-users --project-name "ProjectName"
+    
+    # Delete API keys for each user
+    secure-mcp-gateway user delete-all-api-keys --email "user@example.com"
+    
+    # Then remove project
+    secure-mcp-gateway project remove --project-name "ProjectName"
+    ```
+  </Accordion>
+  
+  <Accordion title="User already in project">
+    **Error:** "User is already in project"
+    
+    **Solution:** This is expected behavior. The user doesn't need to be added again.
+  </Accordion>
+  
+  <Accordion title="Cannot assign config - not found">
+    **Error:** "Config not found"
+    
+    **Solution:**
+    ```bash
+    # List available configs
+    secure-mcp-gateway config list
+    
+    # Create config if needed
+    secure-mcp-gateway config add --config-name "my-config"
+    ```
+  </Accordion>
+</AccordionGroup>

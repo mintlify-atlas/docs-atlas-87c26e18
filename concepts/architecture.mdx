@@ -1,0 +1,443 @@
+---
+title: 'System Architecture'
+description: 'Understand the architecture of Secure MCP Gateway, its components, and how it sits between clients and servers'
+---
+
+## Overview
+
+The Secure MCP Gateway acts as a security middleware that sits between MCP clients (like Claude Desktop or Cursor) and MCP servers. By design, it functions as both:
+
+- **An MCP Server** - to clients requesting tools and resources
+- **An MCP Client** - to actual MCP servers being proxied
+
+This dual nature allows the gateway to intercept, validate, and secure all communications between clients and servers.
+
+## High-Level Architecture
+
+```
+┌─────────────────┐
+│   MCP Client    │  (Claude Desktop, Cursor, etc.)
+│   (stdio/HTTP)  │
+└────────┬────────┘
+         │ 1. Connect with API key
+         ▼
+┌─────────────────────────────────────────────┐
+│     Secure MCP Gateway (gateway.py)         │
+│     FastMCP Server on 0.0.0.0:8000/mcp/     │
+├─────────────────────────────────────────────┤
+│  2. Authentication & Authorization          │
+│  3. Configuration Loading (cached)          │
+└────────┬────────────────────────────────────┘
+         │
+         ├─────────────┬──────────────────┐
+         ▼             ▼                  ▼
+   ┌─────────┐  ┌──────────┐      ┌──────────┐
+   │Discovery│  │Guardrails│      │Execution │
+   │ Service │  │ (Input)  │      │ Service  │
+   └────┬────┘  └────┬─────┘      └────┬─────┘
+        │            │                  │
+        │            └──────┬───────────┘
+        ▼                   ▼
+   ┌─────────────────────────────────┐
+   │   Gateway Client (client.py)    │
+   │   stdio_client() to MCP Servers │
+   └───────────┬─────────────────────┘
+               │
+               ▼
+   ┌─────────────────────────┐
+   │   Actual MCP Servers    │
+   │  (GitHub, Filesystem,   │
+   │   Custom servers, etc.) │
+   └───────────┬─────────────┘
+               │
+               ▼
+   ┌─────────────────────────┐
+   │  Response Processing    │
+   │  - Output Guardrails    │
+   │  - PII De-anonymization │
+   │  - Telemetry Logging    │
+   └─────────────────────────┘
+```
+
+## Core Components
+
+### Gateway Server
+
+**Location:** `src/secure_mcp_gateway/gateway.py:796`
+
+The main entry point that runs as a FastMCP server:
+
+```python
+mcp = FastMCP(
+    name="Enkrypt Secure MCP Gateway",
+    host="0.0.0.0",
+    port=8000,
+    streamable_http_path="/mcp/",
+    transport="streamable-http" or "stdio"
+)
+```
+
+**Gateway Tools:**
+- `enkrypt_list_all_servers` - List available MCP servers
+- `enkrypt_get_server_info` - Get server details and tools
+- `enkrypt_discover_all_tools` - Discover tools from servers
+- `enkrypt_secure_call_tools` - Execute tools with guardrails
+- `enkrypt_get_cache_status` - View cache statistics
+- `enkrypt_clear_cache` - Clear cached data
+- `enkrypt_get_timeout_metrics` - Monitor timeout performance
+
+### Gateway Client
+
+**Location:** `src/secure_mcp_gateway/client.py:294`
+
+Forwards requests to actual MCP servers via stdio transport:
+
+```python
+async def forward_tool_call(server_name, tool_name, args=None, gateway_config=None):
+    """Forwards tool calls to the appropriate MCP server."""
+    # Connects via stdio_client to target server
+    async with stdio_client(StdioServerParameters(...)) as (read, write):
+        async with ClientSession(read, write) as session:
+            # Tool discovery or execution
+            return await session.call_tool(tool_name, arguments=args)
+```
+
+### Plugin System
+
+**Architecture:** Provider-based plugin system for extensibility
+
+#### Authentication Plugins
+
+**Location:** `src/secure_mcp_gateway/plugins/auth/`
+
+- **Base:** `AuthProvider` abstract class
+- **Providers:**
+  - `local_apikey` - Validates API keys from local config
+  - `enkrypt` - Remote authentication via Enkrypt API
+
+#### Guardrail Plugins
+
+**Location:** `src/secure_mcp_gateway/plugins/guardrails/`
+
+- **Base:** `GuardrailProvider` abstract class
+- **Providers:**
+  - `enkrypt` - Production Enkrypt guardrail API
+  - `openai` - OpenAI moderation API
+  - `custom_keyword` - Simple keyword blocking
+
+**Capabilities:**
+- Input validation (PII, toxicity, injection attacks)
+- Output validation (relevancy, adherence, hallucination)
+- PII redaction and de-anonymization
+
+#### Telemetry Plugins
+
+**Location:** `src/secure_mcp_gateway/plugins/telemetry/`
+
+- **Base:** `TelemetryProvider` abstract class
+- **Providers:**
+  - `opentelemetry` - Full OpenTelemetry with OTLP export
+  - `stdout` - Simple stdout logging
+
+### Service Layer
+
+The gateway uses a service-oriented architecture to separate concerns:
+
+#### Cache Services
+**Location:** `src/secure_mcp_gateway/services/cache/`
+
+- **cache_service.py** - Core cache operations
+- **cache_management_service.py** - Clear cache functionality
+- **cache_status_service.py** - Cache statistics
+
+Supports both local in-memory cache and external Redis/KeyDB.
+
+#### Discovery Service
+**Location:** `src/secure_mcp_gateway/services/discovery/discovery_service.py`
+
+```python
+class DiscoveryService:
+    async def discover_tools(self, ctx, server_name, ...):
+        # 1. Check cache first
+        # 2. If tools configured, return them
+        # 3. Otherwise, call forward_tool_call
+        # 4. Cache discovered tools
+        # 5. Return tools with metadata
+```
+
+#### Execution Services
+**Location:** `src/secure_mcp_gateway/services/execution/`
+
+- **secure_tool_execution_service.py** - Executes tools with guardrails
+- **tool_execution_service.py** - Basic execution without guardrails
+
+```python
+class SecureToolExecutionService:
+    async def execute_secure_tools(self, ctx, server_name, tool_calls, logger):
+        # 1. Authenticate and get config
+        # 2. For each tool call:
+        #    a. Run input guardrails
+        #    b. Execute tool
+        #    c. Run output guardrails
+        # 3. Handle PII redaction/de-anonymization
+```
+
+#### OAuth Service
+**Location:** `src/secure_mcp_gateway/services/oauth/`
+
+Complete OAuth 2.0/2.1 implementation:
+
+- **oauth_service.py** - Core OAuth flow (client credentials, authorization code)
+- **token_manager.py** - Token caching with automatic refresh
+- **integration.py** - Injects OAuth tokens into server connections
+- **validation.py** - Scope and security validation
+
+**Features:**
+- Client credentials grant
+- Mutual TLS (mTLS) support (RFC 8705)
+- Automatic token caching and refresh
+- Proactive refresh (5 min before expiry)
+- Exponential backoff retry logic
+
+#### Server Services
+**Location:** `src/secure_mcp_gateway/services/server/`
+
+- **server_listing_service.py** - List all configured servers
+- **server_info_service.py** - Get detailed server information
+
+#### Timeout Management
+**Location:** `src/secure_mcp_gateway/services/timeout/timeout_manager.py`
+
+Tracks operation timeouts and escalations:
+
+```python
+class TimeoutManager:
+    def get_timeout(self, operation_type: str) -> float
+    def track_operation(self, operation_id, operation_type, start_time)
+    def complete_operation(self, operation_id, success)
+    def get_metrics() -> Dict
+```
+
+**Timeout Types:**
+- `default_timeout`: 30s
+- `guardrail_timeout`: 15s
+- `auth_timeout`: 10s
+- `tool_execution_timeout`: 60s
+- `discovery_timeout`: 20s
+- `cache_timeout`: 5s
+- `connectivity_timeout`: 2s
+
+## REST API Server
+
+**Location:** `src/secure_mcp_gateway/api_server.py:1049`
+
+FastAPI-based REST API for programmatic management:
+
+- **Port:** 8001
+- **Auth:** Bearer token (admin API key)
+- **Endpoints:**
+  - `/api/v1/configs/*` - Configuration management
+  - `/api/v1/projects/*` - Project management
+  - `/api/v1/users/*` - User management
+  - `/api/v1/api-keys/*` - API key management
+  - `/api/v1/system/*` - System operations
+  - `/health` - Health check (no auth required)
+
+## Data Flow
+
+### 1. Client Connection
+
+Client connects via stdio or HTTP with API key in request context.
+
+### 2. Authentication
+
+Gateway extracts credentials and validates via auth plugin:
+
+```python
+credentials = get_gateway_credentials(ctx)
+auth_result = await auth_manager.authenticate(ctx)
+```
+
+### 3. Configuration Loading
+
+Retrieves gateway config (cached if available):
+
+```python
+gateway_config = await get_local_mcp_config(
+    gateway_key, project_id, user_id
+)
+```
+
+### 4. Tool Discovery or Execution
+
+**Discovery:**
+```python
+tools = await discovery_service.discover_tools(ctx, server_name)
+```
+
+**Execution:**
+```python
+results = await secure_tool_execution_service.execute_secure_tools(
+    ctx, server_name, tool_calls, logger
+)
+```
+
+### 5. Guardrail Checks
+
+**Input Guardrails:**
+- PII detection and redaction
+- Injection attack prevention
+- Topic/NSFW/toxicity detection
+- Policy violation checking
+
+**Output Guardrails:**
+- All input checks
+- Relevancy validation
+- Adherence checking
+- Hallucination detection
+- PII de-anonymization
+
+### 6. Response Return
+
+Processed response returns to client with telemetry logged.
+
+## Transport Modes
+
+### stdio Mode
+
+Default for local MCP clients like Claude Desktop:
+
+```json
+{
+  "command": "mcp",
+  "args": ["run", "/path/to/gateway.py"],
+  "env": {
+    "ENKRYPT_GATEWAY_KEY": "your-api-key",
+    "MCP_TRANSPORT": "stdio"
+  }
+}
+```
+
+### Streamable HTTP Mode
+
+For remote deployments:
+
+```bash
+# Gateway runs on port 8000
+curl -X POST http://gateway:8000/mcp/ \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{"method": "tools/list"}'
+```
+
+## Security Architecture
+
+### API Key Authentication
+
+All requests require a valid API key mapped to a project and user:
+
+```python
+apikeys = {
+    "YOUR_API_KEY": {
+        "project_id": "PROJECT_ID",
+        "user_id": "USER_ID",
+        "created_at": "2025-01-01T00:00:00"
+    }
+}
+```
+
+### Sensitive Data Masking
+
+**Environment Variables:** `src/secure_mcp_gateway/utils.py:458`
+
+Sensitive keys (token, key, secret, password, auth) are automatically masked:
+
+```python
+# "GITHUB_TOKEN=abc123def456" -> "GITHUB_TOKEN=abc***456"
+```
+
+**HTTP Headers:** `src/secure_mcp_gateway/utils.py:546`
+
+Authorization headers are masked in logs.
+
+### Cache Key Hashing
+
+All cache keys are MD5 hashed to prevent exposure:
+
+```python
+def hash_key(key):
+    return hashlib.md5(key.encode()).hexdigest()
+```
+
+## Observability
+
+### Structured Logging
+
+All operations include context:
+
+```python
+extra = {
+    "custom_id": "...",
+    "server_name": "github_server",
+    "project_id": "abc-123",
+    "user_id": "user-456",
+    "tool_name": "search_code"
+}
+logger.info("Tool executed", extra=extra)
+```
+
+### Distributed Tracing
+
+OpenTelemetry spans track operations:
+
+```python
+with tracer.start_as_current_span("tool_execution") as span:
+    span.set_attribute("server_name", server_name)
+    span.set_attribute("tool_name", tool_name)
+```
+
+### Metrics
+
+Prometheus-compatible metrics exported:
+- Request counts
+- Error rates
+- Latencies
+- Cache hit/miss rates
+- Guardrail block counts
+
+## Scalability
+
+### Horizontal Scaling
+
+Use external cache (Redis/KeyDB) for multi-instance deployments:
+
+```json
+{
+  "enkrypt_mcp_use_external_cache": true,
+  "enkrypt_cache_host": "redis.example.com",
+  "enkrypt_cache_port": 6379
+}
+```
+
+### Cache Expiration
+
+- **Tool cache:** 4 hours (configurable)
+- **Gateway config cache:** 24 hours (configurable)
+
+Automatic refresh on cache miss.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="How It Works" icon="gears" href="/concepts/how-it-works">
+    Learn the detailed request flow and step-by-step process
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/concepts/configuration">
+    Understand the configuration system and all available settings
+  </Card>
+  <Card title="Authentication" icon="lock" href="/concepts/authentication">
+    Deep dive into authentication mechanisms and API keys
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/deployment/local-install">
+    Deploy the gateway to production environments
+  </Card>
+</CardGroup>

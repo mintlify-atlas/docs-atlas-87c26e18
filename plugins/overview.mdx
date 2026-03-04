@@ -1,0 +1,296 @@
+---
+title: 'Plugin System Overview'
+description: 'Learn about the Secure MCP Gateway plugin architecture and how to create custom plugins'
+icon: 'puzzle-piece'
+---
+
+## Architecture
+
+The Secure MCP Gateway uses a flexible plugin-based architecture to support custom authentication, guardrails, and telemetry providers. This design allows you to extend the gateway's functionality without modifying core code.
+
+### Plugin Types
+
+The gateway supports three types of plugins:
+
+<CardGroup cols={3}>
+  <Card title="Auth Providers" icon="shield-check" href="/plugins/auth-providers">
+    Validate API keys, OAuth tokens, JWT, and custom credentials
+  </Card>
+  <Card title="Guardrail Providers" icon="shield-halved" href="/plugins/guardrail-providers">
+    Detect PII, toxicity, policy violations, and security threats
+  </Card>
+  <Card title="Telemetry Providers" icon="chart-line" href="/plugins/telemetry-providers">
+    Export logs, traces, and metrics to observability platforms
+  </Card>
+</CardGroup>
+
+## Plugin Discovery
+
+Plugins are loaded dynamically using the `PluginLoader` class. The loader:
+
+1. Reads plugin configuration from `plugins` section in config file
+2. Instantiates the specified provider class
+3. Registers the provider with the appropriate manager
+4. Falls back to default Enkrypt providers if custom providers fail
+
+### Configuration Structure
+
+```json
+{
+  "plugins": {
+    "auth": {
+      "provider": "local_apikey",
+      "config": {
+        "use_remote_config": false
+      }
+    },
+    "guardrails": {
+      "provider": "enkrypt",
+      "config": {
+        "api_key": "YOUR_API_KEY",
+        "base_url": "https://api.enkryptai.com"
+      }
+    },
+    "telemetry": {
+      "provider": "opentelemetry",
+      "config": {
+        "url": "http://localhost:4317",
+        "insecure": true
+      }
+    }
+  }
+}
+```
+
+## Creating a Custom Plugin
+
+### Step 1: Implement the Provider Interface
+
+Create a new Python file with your provider class implementing the appropriate abstract base class:
+
+```python
+from secure_mcp_gateway.plugins.auth.base import (
+    AuthProvider,
+    AuthCredentials,
+    AuthResult,
+    AuthStatus,
+    AuthMethod
+)
+
+class MyCustomAuthProvider(AuthProvider):
+    def __init__(self, api_key: str, base_url: str):
+        self.api_key = api_key
+        self.base_url = base_url
+    
+    def get_name(self) -> str:
+        return "my-custom-auth"
+    
+    def get_version(self) -> str:
+        return "1.0.0"
+    
+    def get_supported_methods(self) -> List[AuthMethod]:
+        return [AuthMethod.API_KEY]
+    
+    async def authenticate(self, credentials: AuthCredentials) -> AuthResult:
+        # Your authentication logic here
+        pass
+    
+    async def validate_session(self, session_id: str) -> bool:
+        # Your session validation logic
+        pass
+    
+    async def refresh_authentication(
+        self, session_id: str, credentials: AuthCredentials
+    ) -> AuthResult:
+        # Your refresh logic
+        pass
+```
+
+### Step 2: Register Your Plugin
+
+Update your configuration to use the custom provider:
+
+```json
+{
+  "plugins": {
+    "auth": {
+      "provider": "my-custom-auth",
+      "config": {
+        "api_key": "your-key",
+        "base_url": "https://api.example.com"
+      }
+    }
+  }
+}
+```
+
+### Step 3: Make Your Provider Discoverable
+
+Add your provider to the plugin loader mapping in `plugin_loader.py:55`:
+
+```python
+provider_class_mapping = {
+    "my-custom-auth": "my_package.my_module.MyCustomAuthProvider",
+    # ... other providers
+}
+```
+
+## Design Patterns
+
+### Registry Pattern
+
+Each plugin type uses a registry to manage provider instances:
+
+```python
+from secure_mcp_gateway.plugins.auth.base import AuthProviderRegistry
+
+registry = AuthProviderRegistry()
+registry.register(my_provider)
+provider = registry.get_provider("my-custom-auth")
+```
+
+### Factory Pattern
+
+The `GuardrailFactory` creates guardrail instances from registered providers:
+
+```python
+from secure_mcp_gateway.plugins.guardrails.base import GuardrailFactory
+
+factory = GuardrailFactory(registry)
+input_guardrail = factory.create_input_guardrail("enkrypt", config)
+```
+
+### Protocol/Interface Segregation
+
+Guardrail providers use multiple protocols for different capabilities:
+
+- `InputGuardrail` - Validates requests before execution
+- `OutputGuardrail` - Validates responses after execution
+- `PIIHandler` - Handles PII detection and redaction
+
+This allows providers to implement only the features they support.
+
+## Plugin Lifecycle
+
+### Initialization
+
+1. **Gateway Startup** - `gateway.py` loads common config
+2. **Plugin Loading** - `PluginLoader.load_plugin_providers()` discovers providers
+3. **Registration** - Providers registered with manager instances
+4. **Validation** - Provider config validated with `validate_config()`
+
+### Request Processing
+
+1. **Credential Extraction** - Auth manager extracts credentials from request
+2. **Authentication** - Auth provider validates credentials
+3. **Tool Discovery** - Gateway discovers available tools
+4. **Input Guardrails** - Request validated before execution (optional)
+5. **Tool Execution** - MCP tool executed via client
+6. **Output Guardrails** - Response validated after execution (optional)
+7. **Telemetry** - Events logged/traced throughout
+
+### Shutdown
+
+Telemetry providers can implement `shutdown()` for cleanup:
+
+```python
+def shutdown(self) -> TelemetryResult:
+    # Close connections, flush buffers, etc.
+    return TelemetryResult(
+        success=True,
+        provider_name=self.name,
+        message="Shutdown successful"
+    )
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Error Handling">
+    Always wrap provider operations in try/except blocks and return appropriate status codes:
+
+    ```python
+    try:
+        # Your logic
+        return AuthResult(
+            status=AuthStatus.SUCCESS,
+            authenticated=True,
+            message="Success"
+        )
+    except Exception as e:
+        return AuthResult(
+            status=AuthStatus.ERROR,
+            authenticated=False,
+            message="Failed",
+            error=str(e)
+        )
+    ```
+  </Accordion>
+
+  <Accordion title="Sensitive Data Masking">
+    Never log sensitive credentials. Use masking utilities:
+
+    ```python
+    from secure_mcp_gateway.utils import mask_sensitive_data
+
+    safe_data = mask_sensitive_data({
+        "api_key": "secret123",
+        "user": "john"
+    })
+    # {"api_key": "****123", "user": "john"}
+    ```
+  </Accordion>
+
+  <Accordion title="Configuration Validation">
+    Implement `validate_config()` to check required fields:
+
+    ```python
+    def validate_config(self, config: Dict[str, Any]) -> bool:
+        required = ["api_key", "base_url"]
+        return all(key in config for key in required)
+
+    def get_required_config_keys(self) -> List[str]:
+        return ["api_key", "base_url"]
+    ```
+  </Accordion>
+
+  <Accordion title="Async Operations">
+    Use async/await for I/O operations:
+
+    ```python
+    async def authenticate(self, credentials: AuthCredentials) -> AuthResult:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(self.auth_url, json=data)
+            # Process response
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Default Providers
+
+The gateway includes these default providers:
+
+| Plugin Type | Provider | Description |
+|------------|----------|-------------|
+| Auth | `local_apikey` | Validates API keys from local config file |
+| Auth | `enkrypt` | Remote authentication via Enkrypt API |
+| Guardrails | `enkrypt` | Production guardrail service with 10+ detectors |
+| Telemetry | `opentelemetry` | Full OpenTelemetry with OTLP export |
+
+<Info>
+  The `PluginLoader` automatically falls back to default Enkrypt providers if custom providers fail to load.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Auth Providers" icon="shield-check" href="/plugins/auth-providers">
+    Learn about the AuthProvider interface
+  </Card>
+  <Card title="Guardrail Providers" icon="shield-halved" href="/plugins/guardrail-providers">
+    Build custom security guardrails
+  </Card>
+  <Card title="Telemetry Providers" icon="chart-line" href="/plugins/telemetry-providers">
+    Integrate custom observability backends
+  </Card>
+</CardGroup>

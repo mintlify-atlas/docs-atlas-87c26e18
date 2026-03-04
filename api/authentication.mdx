@@ -1,0 +1,387 @@
+---
+title: 'API Authentication'
+description: 'Authentication and authorization for the Secure MCP Gateway REST API'
+---
+
+## Overview
+
+The Secure MCP Gateway REST API uses **Bearer token authentication** with an admin API key to secure all endpoints. This ensures that only authorized administrators can manage configurations, projects, and users.
+
+## Authentication Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API Server
+    participant Config File
+    
+    Client->>API Server: Request with Authorization header
+    API Server->>API Server: Extract Bearer token
+    API Server->>Config File: Load admin_apikey
+    Config File->>API Server: Return admin_apikey
+    API Server->>API Server: Compare tokens
+    alt Tokens match
+        API Server->>Client: 200 OK + Response
+    else Tokens don't match
+        API Server->>Client: 401 Unauthorized
+    end
+```
+
+## Admin API Key
+
+### What is the Admin API Key?
+
+The admin API key is a special authentication token that grants full administrative access to the REST API. It is distinct from user API keys, which are used for gateway access.
+
+**Key Differences:**
+
+| Feature | Admin API Key | User API Keys |
+|---------|---------------|---------------|
+| **Purpose** | REST API management | Gateway access via MCP clients |
+| **Scope** | Full system access | Project-specific access |
+| **Generation** | Auto-generated on init | Generated per user/project |
+| **Location** | `admin_apikey` in config | `apikeys` section in config |
+| **Management** | Manual regeneration only | Can be rotated via API |
+
+### Locating Your Admin API Key
+
+The admin API key is stored in your configuration file:
+
+**Configuration Path:**
+- **macOS/Linux**: `~/.enkrypt/enkrypt_mcp_config.json`
+- **Windows**: `%USERPROFILE%\.enkrypt\enkrypt_mcp_config.json`
+- **Docker**: `/app/.enkrypt/docker/enkrypt_mcp_config.json`
+
+**Config Structure:**
+
+```json
+{
+  "admin_apikey": "abc123xyz789-your-admin-key-here",
+  "common_mcp_gateway_config": { ... },
+  "mcp_configs": { ... },
+  "projects": { ... },
+  "users": { ... },
+  "apikeys": { ... }
+}
+```
+
+### Regenerating the Admin API Key
+
+If your admin API key is compromised or you need to regenerate it:
+
+1. **Manual Method**: Edit the configuration file and replace the `admin_apikey` value with a new random string (34+ characters recommended)
+
+2. **Backup Method**: Use the system backup/restore feature:
+
+```bash
+# Backup current config
+secure-mcp-gateway system backup --output-file backup.json
+
+# Edit backup.json and change admin_apikey
+
+# Restore with new key
+secure-mcp-gateway system restore --input-file backup.json
+```
+
+<Warning>
+  After regenerating the admin API key, all API clients must update their authentication credentials.
+</Warning>
+
+## Authorization Header
+
+### Format
+
+All authenticated requests must include the `Authorization` header:
+
+```
+Authorization: Bearer <admin_api_key>
+```
+
+### Example
+
+```bash
+curl -X GET "http://localhost:8001/api/v1/configs" \
+  -H "Authorization: Bearer abc123xyz789-your-admin-key-here" \
+  -H "Content-Type: application/json"
+```
+
+## Authentication Errors
+
+### Missing Authorization Header
+
+**Request:**
+```bash
+curl -X GET "http://localhost:8001/api/v1/configs"
+```
+
+**Response:** `401 Unauthorized`
+
+```json
+{
+  "error": "AUTH_INVALID_CREDENTIALS",
+  "detail": "Authorization header required",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+### Invalid Authorization Format
+
+**Request:**
+```bash
+curl -X GET "http://localhost:8001/api/v1/configs" \
+  -H "Authorization: abc123xyz789"
+```
+
+**Response:** `401 Unauthorized`
+
+```json
+{
+  "error": "AUTH_INVALID_CREDENTIALS",
+  "detail": "Invalid authorization format. Use 'Bearer <api_key>'",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+### Invalid Admin API Key
+
+**Request:**
+```bash
+curl -X GET "http://localhost:8001/api/v1/configs" \
+  -H "Authorization: Bearer wrong-api-key"
+```
+
+**Response:** `401 Unauthorized`
+
+```json
+{
+  "error": "AUTH_INVALID_CREDENTIALS",
+  "detail": "Invalid admin API key. Administrative operations require admin_apikey.",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+### Admin API Key Not Configured
+
+If the configuration file is missing the `admin_apikey` field:
+
+**Response:** `500 Internal Server Error`
+
+```json
+{
+  "error": "AUTH_INVALID_CREDENTIALS",
+  "detail": "Admin API key not configured. Please regenerate configuration.",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+## Implementation Details
+
+### Authentication Function
+
+The API uses a dependency injection pattern for authentication:
+
+```python
+from fastapi import Depends, Header, HTTPException
+
+def get_api_key(authorization: Optional[str] = Header(None)) -> str:
+    """Extract and validate admin API key from Authorization header."""
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization header required"
+        )
+    
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authorization format. Use 'Bearer <api_key>'"
+        )
+    
+    api_key = authorization[7:]  # Remove "Bearer " prefix
+    
+    # Validate against config
+    with open(config_path) as f:
+        config = json.load(f)
+    
+    if api_key != config.get("admin_apikey"):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid admin API key"
+        )
+    
+    return api_key
+
+# Usage in endpoints
+@app.get("/api/v1/configs")
+async def get_configs(api_key: str = Depends(get_api_key)):
+    # Endpoint logic here
+    pass
+```
+
+### Validation Flow
+
+1. **Extract Header**: API server extracts `Authorization` header from request
+2. **Parse Token**: Removes "Bearer " prefix to get the API key
+3. **Load Config**: Reads the configuration file to get `admin_apikey`
+4. **Compare**: Performs string comparison between provided and stored keys
+5. **Grant/Deny**: Returns 200 OK or 401 Unauthorized
+
+## Security Best Practices
+
+### Protect Your Admin API Key
+
+<Warning>
+  The admin API key grants full control over the gateway. Protect it like a root password.
+</Warning>
+
+**Do:**
+- Store the admin API key in environment variables or secrets management systems
+- Use HTTPS in production to encrypt the Authorization header in transit
+- Rotate the admin API key periodically
+- Restrict API server access to trusted networks
+- Use firewall rules to limit access to port 8001
+
+**Don't:**
+- Commit the admin API key to version control
+- Share the admin API key in plain text
+- Expose the API server to the public internet without additional security
+- Use the admin API key in client applications
+
+### Environment Variables
+
+Store the admin API key securely:
+
+```bash
+# .env file (add to .gitignore)
+ADMIN_API_KEY=abc123xyz789-your-admin-key-here
+```
+
+```python
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+admin_key = os.getenv('ADMIN_API_KEY')
+```
+
+### HTTPS Configuration
+
+For production deployments, use a reverse proxy with TLS:
+
+**NGINX Example:**
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name api.example.com;
+    
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+    
+    location / {
+        proxy_pass http://localhost:8001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+### Network Security
+
+Restrict API access using firewall rules:
+
+```bash
+# Allow only from specific IP range
+sudo ufw allow from 192.168.1.0/24 to any port 8001
+
+# Or use iptables
+sudo iptables -A INPUT -p tcp -s 192.168.1.0/24 --dport 8001 -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 8001 -j DROP
+```
+
+## Testing Authentication
+
+### Valid Request
+
+```bash
+# Set your admin key
+export ADMIN_KEY="abc123xyz789-your-admin-key-here"
+
+# Test authentication
+curl -X GET "http://localhost:8001/api/v1/configs" \
+  -H "Authorization: Bearer ${ADMIN_KEY}" \
+  -H "Content-Type: application/json"
+```
+
+**Expected Response:** `200 OK`
+
+```json
+{
+  "message": "Configurations retrieved successfully",
+  "data": [ ... ],
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+### Invalid Request
+
+```bash
+curl -X GET "http://localhost:8001/api/v1/configs" \
+  -H "Authorization: Bearer invalid-key" \
+  -H "Content-Type: application/json"
+```
+
+**Expected Response:** `401 Unauthorized`
+
+```json
+{
+  "error": "AUTH_INVALID_CREDENTIALS",
+  "detail": "Invalid admin API key. Administrative operations require admin_apikey.",
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+## Health Check Endpoint
+
+The health check endpoint does **not** require authentication:
+
+```bash
+curl http://localhost:8001/health
+```
+
+**Response:** `200 OK`
+
+```json
+{
+  "message": "API server is healthy",
+  "data": {
+    "version": "2.1.2",
+    "config_path": "/home/user/.enkrypt/enkrypt_mcp_config.json"
+  },
+  "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+This endpoint is useful for:
+- Load balancer health checks
+- Monitoring and alerting systems
+- Startup readiness checks in container orchestration
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Endpoints" icon="gear" href="/api/configurations">
+    Manage MCP configurations
+  </Card>
+  <Card title="User Management" icon="users" href="/api/users">
+    Create and manage users
+  </Card>
+  <Card title="API Key Management" icon="key" href="/api/api-keys">
+    Generate user API keys
+  </Card>
+  <Card title="System Operations" icon="server" href="/api/system">
+    Backup and restore operations
+  </Card>
+</CardGroup>

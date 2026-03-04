@@ -1,0 +1,771 @@
+---
+title: 'Metrics'
+description: 'Prometheus metrics, Grafana dashboards, and available metrics for monitoring the Secure MCP Gateway'
+icon: 'chart-column'
+---
+
+## Overview
+
+The Secure MCP Gateway exports comprehensive metrics via OpenTelemetry to Prometheus. These metrics provide insights into:
+
+- **Operation Performance:** Request rates, latencies, success/failure rates
+- **Cache Efficiency:** Hit/miss ratios, cache sizes
+- **Security Events:** Guardrail violations, blocked requests, PII redactions
+- **Resource Usage:** Active sessions, users, timeout operations
+- **System Health:** Authentication success/failure, error rates
+
+## Metrics Architecture
+
+```
+┌─────────────────────────────────────┐
+│ Secure MCP Gateway                  │
+│  ├── Tool Execution Metrics         │
+│  ├── Cache Metrics                  │
+│  ├── Guardrail Metrics              │
+│  ├── Auth Metrics                   │
+│  └── Timeout Metrics                │
+└─────────────┬───────────────────────┘
+              │ OTLP gRPC/HTTP
+              ▼
+┌─────────────────────────────────────┐
+│ OpenTelemetry Collector             │
+│  ├── Batch Processor                │
+│  └── Prometheus Exporter            │
+└─────────────┬───────────────────────┘
+              │ Port 8889
+              ▼
+┌─────────────────────────────────────┐
+│ Prometheus                          │
+│  ├── Scrape Config                  │
+│  ├── TSDB Storage                   │
+│  └── PromQL Query Engine            │
+└─────────────┬───────────────────────┘
+              │ HTTP API
+              ▼
+┌─────────────────────────────────────┐
+│ Grafana Dashboards                  │
+│  ├── Gateway Metrics Dashboard      │
+│  ├── OpenTelemetry Dashboard        │
+│  └── Custom Panels                  │
+└─────────────────────────────────────┘
+```
+
+## Available Metrics
+
+### Operation Metrics
+
+#### Tool Call Counters
+
+<ParamField path="enkrypt_tool_calls_total" type="Counter">
+  Total number of tool invocations across all servers.
+  
+  **Labels:** `server_name`, `tool_name`, `project_id`
+  
+  **Usage:** Track overall tool usage and identify popular tools
+</ParamField>
+
+<ParamField path="enkrypt_tool_call_success_total" type="Counter">
+  Total number of successful tool calls.
+  
+  **Labels:** `server_name`, `tool_name`
+  
+  **Usage:** Calculate success rates, identify reliable tools
+</ParamField>
+
+<ParamField path="enkrypt_tool_call_failure_total" type="Counter">
+  Total number of failed tool calls (e.g., server errors, timeouts).
+  
+  **Labels:** `server_name`, `tool_name`, `error_type`
+  
+  **Usage:** Monitor error rates, set up alerts for high failure rates
+</ParamField>
+
+<ParamField path="enkrypt_tool_call_error_counter" type="Counter">
+  Total number of tool call errors (exceptions, crashes).
+  
+  **Labels:** `server_name`, `error_type`
+  
+  **Usage:** Track critical errors requiring immediate attention
+</ParamField>
+
+#### Tool Call Latency
+
+<ParamField path="enkrypt_tool_call_duration_seconds" type="Histogram">
+  Duration of tool calls in seconds. Includes percentiles (p50, p95, p99).
+  
+  **Labels:** `server_name`, `tool_name`
+  
+  **Buckets:** `0.1, 0.5, 1.0, 2.0, 5.0, 10.0, +Inf`
+  
+  **Usage:** Identify slow tools, set SLOs, detect performance degradation
+</ParamField>
+
+**Example PromQL Queries:**
+
+```promql
+# Average tool execution time
+rate(enkrypt_tool_call_duration_seconds_sum[5m]) 
+  / rate(enkrypt_tool_call_duration_seconds_count[5m])
+
+# 95th percentile latency
+histogram_quantile(0.95, 
+  rate(enkrypt_tool_call_duration_seconds_bucket[5m])
+)
+
+# Tool call success rate
+rate(enkrypt_tool_call_success_total[5m]) 
+  / rate(enkrypt_tool_calls_total[5m])
+```
+
+#### Server Discovery
+
+<ParamField path="enkrypt_list_all_servers_calls" type="Counter">
+  Number of times `enkrypt_list_all_servers` was called.
+  
+  **Labels:** `user_id`, `project_id`
+  
+  **Usage:** Track server listing frequency
+</ParamField>
+
+<ParamField path="enkrypt_servers_discovered" type="Counter">
+  Total number of servers discovered with tools.
+  
+  **Labels:** `mcp_config_id`
+  
+  **Usage:** Monitor server discovery operations
+</ParamField>
+
+### Cache Metrics
+
+<ParamField path="enkrypt_cache_hits_total" type="Counter">
+  Total number of cache hits (data found in cache).
+  
+  **Labels:** `cache_type` (`tools`, `gateway_config`, `server_config`)
+  
+  **Usage:** Monitor cache effectiveness
+</ParamField>
+
+<ParamField path="enkrypt_cache_misses_total" type="Counter">
+  Total number of cache misses (data not in cache, fetch required).
+  
+  **Labels:** `cache_type`
+  
+  **Usage:** Identify cache tuning opportunities
+</ParamField>
+
+**Example PromQL Queries:**
+
+```promql
+# Cache hit ratio
+rate(enkrypt_cache_hits_total[5m]) 
+  / (rate(enkrypt_cache_hits_total[5m]) + rate(enkrypt_cache_misses_total[5m]))
+
+# Cache miss rate by type
+rate(enkrypt_cache_misses_total[5m])
+```
+
+### Security Metrics
+
+#### Guardrail Violations
+
+<ParamField path="enkrypt_guardrail_violations_total" type="Counter">
+  Total number of guardrail violations detected.
+  
+  **Labels:** `violation_type`, `server_name`, `detector`
+  
+  **Usage:** Monitor security posture, detect attack patterns
+</ParamField>
+
+<ParamField path="enkrypt_input_guardrail_violations_total" type="Counter">
+  Guardrail violations on input (before sending to server).
+  
+  **Labels:** `violation_type`, `server_name`
+  
+  **Usage:** Track input validation issues
+</ParamField>
+
+<ParamField path="enkrypt_output_guardrail_violations_total" type="Counter">
+  Guardrail violations on output (after receiving from server).
+  
+  **Labels:** `violation_type`, `server_name`
+  
+  **Usage:** Monitor response quality and safety
+</ParamField>
+
+<ParamField path="enkrypt_relevancy_violations_total" type="Counter">
+  Relevancy check violations (response not relevant to input).
+  
+  **Labels:** `server_name`, `tool_name`
+</ParamField>
+
+<ParamField path="enkrypt_adherence_violations_total" type="Counter">
+  Adherence check violations (response doesn't follow instructions).
+  
+  **Labels:** `server_name`, `tool_name`
+</ParamField>
+
+<ParamField path="enkrypt_hallucination_violations_total" type="Counter">
+  Hallucination detection violations.
+  
+  **Labels:** `server_name`, `tool_name`
+</ParamField>
+
+#### Blocked Requests
+
+<ParamField path="enkrypt_tool_call_blocked_total" type="Counter">
+  Total number of tool calls blocked by guardrails.
+  
+  **Labels:** `server_name`, `tool_name`, `reason`
+  
+  **Usage:** Monitor security enforcement, identify attack attempts
+</ParamField>
+
+<ParamField path="enkrypt_pii_redactions_total" type="Counter">
+  Total number of PII redaction operations performed.
+  
+  **Labels:** `server_name`, `pii_type`
+  
+  **Usage:** Track PII protection, ensure compliance
+</ParamField>
+
+#### Guardrail API Performance
+
+<ParamField path="enkrypt_api_requests_total" type="Counter">
+  Total number of API requests to guardrail service.
+  
+  **Labels:** `endpoint`, `status_code`
+  
+  **Usage:** Monitor guardrail service usage
+</ParamField>
+
+<ParamField path="enkrypt_api_request_duration_seconds" type="Histogram">
+  Duration of guardrail API requests in seconds.
+  
+  **Labels:** `endpoint`
+  
+  **Buckets:** `0.1, 0.5, 1.0, 2.0, 5.0, 10.0, +Inf`
+  
+  **Usage:** Monitor guardrail latency, set alerts for slow checks
+</ParamField>
+
+**Example PromQL Queries:**
+
+```promql
+# Guardrail violation rate
+rate(enkrypt_guardrail_violations_total[5m])
+
+# Blocked request rate
+rate(enkrypt_tool_call_blocked_total[5m])
+
+# PII redaction frequency
+rate(enkrypt_pii_redactions_total[5m])
+
+# Guardrail API latency
+histogram_quantile(0.95, 
+  rate(enkrypt_api_request_duration_seconds_bucket[5m])
+)
+```
+
+### Authentication Metrics
+
+<ParamField path="enkrypt_auth_success_total" type="Counter">
+  Total number of successful authentications.
+  
+  **Labels:** `auth_provider`, `project_id`
+  
+  **Usage:** Monitor authentication activity
+</ParamField>
+
+<ParamField path="enkrypt_auth_failure_total" type="Counter">
+  Total number of failed authentication attempts.
+  
+  **Labels:** `auth_provider`, `failure_reason`
+  
+  **Usage:** Detect unauthorized access attempts, brute force attacks
+</ParamField>
+
+<ParamField path="enkrypt_active_sessions" type="UpDownCounter">
+  Current number of active sessions.
+  
+  **Usage:** Monitor concurrent connections
+</ParamField>
+
+<ParamField path="enkrypt_active_users" type="UpDownCounter">
+  Current number of active users.
+  
+  **Usage:** Track user concurrency
+</ParamField>
+
+**Example PromQL Queries:**
+
+```promql
+# Authentication failure rate
+rate(enkrypt_auth_failure_total[5m])
+
+# Current active sessions
+enkrypt_active_sessions
+
+# Auth success rate
+rate(enkrypt_auth_success_total[5m]) 
+  / (rate(enkrypt_auth_success_total[5m]) + rate(enkrypt_auth_failure_total[5m]))
+```
+
+### Timeout Management Metrics
+
+<ParamField path="enkrypt_timeout_operations_total" type="Counter">
+  Total number of timeout operations tracked.
+  
+  **Labels:** `operation_type`
+  
+  **Usage:** Monitor timeout tracking coverage
+</ParamField>
+
+<ParamField path="enkrypt_timeout_operations_successful" type="Counter">
+  Number of operations completed successfully before timeout.
+  
+  **Labels:** `operation_type`
+</ParamField>
+
+<ParamField path="enkrypt_timeout_operations_timed_out" type="Counter">
+  Number of operations that exceeded timeout threshold.
+  
+  **Labels:** `operation_type`
+  
+  **Usage:** Set alerts for high timeout rates
+</ParamField>
+
+<ParamField path="enkrypt_timeout_operations_cancelled" type="Counter">
+  Number of operations that were cancelled.
+  
+  **Labels:** `operation_type`
+</ParamField>
+
+#### Timeout Escalations
+
+<ParamField path="enkrypt_timeout_escalation_warn" type="Counter">
+  Number of timeout escalation warnings (>80% of timeout).
+  
+  **Labels:** `operation_type`
+  
+  **Usage:** Early warning for slow operations
+</ParamField>
+
+<ParamField path="enkrypt_timeout_escalation_timeout" type="Counter">
+  Number of operations that reached timeout threshold.
+  
+  **Labels:** `operation_type`
+</ParamField>
+
+<ParamField path="enkrypt_timeout_escalation_fail" type="Counter">
+  Number of operations that exceeded timeout and failed.
+  
+  **Labels:** `operation_type`
+</ParamField>
+
+#### Timeout Performance
+
+<ParamField path="enkrypt_timeout_operation_duration_seconds" type="Histogram">
+  Duration of timeout-managed operations in seconds.
+  
+  **Labels:** `operation_type`
+  
+  **Buckets:** `0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, +Inf`
+</ParamField>
+
+<ParamField path="enkrypt_timeout_active_operations" type="UpDownCounter">
+  Number of currently active timeout operations.
+  
+  **Usage:** Monitor concurrent operations
+</ParamField>
+
+**Example PromQL Queries:**
+
+```promql
+# Timeout rate by operation type
+rate(enkrypt_timeout_operations_timed_out[5m]) 
+  / rate(enkrypt_timeout_operations_total[5m])
+
+# Operations approaching timeout
+rate(enkrypt_timeout_escalation_warn[5m])
+
+# Average operation duration
+rate(enkrypt_timeout_operation_duration_seconds_sum[5m]) 
+  / rate(enkrypt_timeout_operation_duration_seconds_count[5m])
+```
+
+## Metrics Implementation
+
+### Creating Metrics
+
+Metrics are created during OpenTelemetry provider initialization:
+
+**Location:** `src/secure_mcp_gateway/plugins/telemetry/opentelemetry_provider.py:373`
+
+```python
+def _create_metrics(self):
+    """Create all metrics."""
+    # Counters
+    self.tool_call_counter = self._meter.create_counter(
+        name="enkrypt_tool_calls_total",
+        description="Total number of tool calls",
+        unit="1",
+    )
+    
+    # Histograms
+    self.tool_call_duration = self._meter.create_histogram(
+        name="enkrypt_tool_call_duration_seconds",
+        description="Duration of tool calls in seconds",
+        unit="s",
+    )
+    
+    # Gauges (UpDownCounter)
+    self.active_sessions_gauge = self._meter.create_up_down_counter(
+        "enkrypt_active_sessions",
+        description="Current active sessions",
+        unit="1"
+    )
+```
+
+### Recording Metrics
+
+Metrics are recorded throughout the gateway:
+
+```python
+from secure_mcp_gateway.plugins.telemetry import get_telemetry_config_manager
+
+telemetry_manager = get_telemetry_config_manager()
+
+# Increment counter
+telemetry_manager.tool_call_counter.add(
+    1,
+    attributes={
+        "server_name": "github_server",
+        "tool_name": "create_issue",
+        "project_id": project_id
+    }
+)
+
+# Record histogram
+telemetry_manager.tool_call_duration.record(
+    duration_seconds,
+    attributes={
+        "server_name": server_name,
+        "tool_name": tool_name
+    }
+)
+
+# Update gauge
+telemetry_manager.active_sessions_gauge.add(1)  # Increment
+telemetry_manager.active_sessions_gauge.add(-1)  # Decrement
+```
+
+## Prometheus Configuration
+
+### Scrape Configuration
+
+**Location:** `infra/prometheus/prometheus.yml`
+
+```yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'otel-collector'
+    static_configs:
+      - targets: ['otel-collector:8889']
+```
+
+### Accessing Prometheus
+
+- **UI:** http://localhost:9090
+- **API:** http://localhost:9090/api/v1/query
+- **Targets:** http://localhost:9090/targets
+- **Config:** http://localhost:9090/config
+
+### Example Queries
+
+**In Prometheus UI (Expression Browser):**
+
+```promql
+# Total tool calls in last 5 minutes
+sum(increase(enkrypt_tool_calls_total[5m]))
+
+# Top 5 most used tools
+topk(5, sum by (tool_name) (enkrypt_tool_calls_total))
+
+# Error rate percentage
+(rate(enkrypt_tool_call_failure_total[5m]) 
+  / rate(enkrypt_tool_calls_total[5m])) * 100
+
+# Average latency by server
+avg by (server_name) (
+  rate(enkrypt_tool_call_duration_seconds_sum[5m]) 
+  / rate(enkrypt_tool_call_duration_seconds_count[5m])
+)
+```
+
+## Grafana Dashboards
+
+### Pre-built Dashboards
+
+The gateway includes two pre-configured Grafana dashboards:
+
+#### 1. Gateway Metrics Dashboard
+
+**Location:** `infra/grafana/provisioning/dashboards/gateway-metrics.json`
+
+**Panels:**
+- Tool Call Rate (graph)
+- Tool Call Success Rate (gauge)
+- Tool Call Latency p95 (graph)
+- Cache Hit Ratio (gauge)
+- Guardrail Violations (graph)
+- Active Sessions (gauge)
+- Error Rate (graph)
+
+#### 2. OpenTelemetry Gateway Metrics Dashboard
+
+**Location:** `infra/grafana/provisioning/dashboards/OpenTelemetry Gateway Metrics.json`
+
+**Panels:**
+- Request Volume
+- Response Times (percentiles)
+- Error Rates by Type
+- Throughput
+- System Health
+
+### Accessing Grafana
+
+1. Open http://localhost:3000
+2. No login required (anonymous admin mode)
+3. Navigate to Dashboards → Browse
+4. Select "Gateway Metrics" or "OpenTelemetry Gateway Metrics"
+
+### Creating Custom Dashboards
+
+**Example Panel (Tool Call Rate):**
+
+```json
+{
+  "type": "graph",
+  "title": "Tool Call Rate",
+  "targets": [
+    {
+      "expr": "rate(enkrypt_tool_calls_total[5m])",
+      "legendFormat": "{{server_name}} - {{tool_name}}"
+    }
+  ]
+}
+```
+
+**Example Panel (Cache Hit Ratio):**
+
+```json
+{
+  "type": "gauge",
+  "title": "Cache Hit Ratio",
+  "targets": [
+    {
+      "expr": "rate(enkrypt_cache_hits_total[5m]) / (rate(enkrypt_cache_hits_total[5m]) + rate(enkrypt_cache_misses_total[5m]))",
+      "legendFormat": "Hit Ratio"
+    }
+  ],
+  "fieldConfig": {
+    "defaults": {
+      "max": 1,
+      "min": 0,
+      "unit": "percentunit"
+    }
+  }
+}
+```
+
+## Alerting
+
+### Prometheus Alerts
+
+Create alert rules in Prometheus:
+
+**alerting_rules.yml:**
+
+```yaml
+groups:
+  - name: gateway_alerts
+    interval: 30s
+    rules:
+      # High error rate
+      - alert: HighErrorRate
+        expr: |
+          rate(enkrypt_tool_call_failure_total[5m]) 
+          / rate(enkrypt_tool_calls_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }}"
+      
+      # Slow tool execution
+      - alert: SlowToolExecution
+        expr: |
+          histogram_quantile(0.95, 
+            rate(enkrypt_tool_call_duration_seconds_bucket[5m])
+          ) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow tool execution (p95 > 5s)"
+      
+      # Cache miss rate too high
+      - alert: HighCacheMissRate
+        expr: |
+          rate(enkrypt_cache_misses_total[5m]) 
+          / (rate(enkrypt_cache_hits_total[5m]) + rate(enkrypt_cache_misses_total[5m])) > 0.5
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "High cache miss rate (>50%)"
+      
+      # Security: High guardrail violation rate
+      - alert: HighGuardrailViolations
+        expr: rate(enkrypt_guardrail_violations_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High guardrail violation rate"
+          description: "{{ $value }} violations per second"
+      
+      # Authentication failures
+      - alert: HighAuthFailureRate
+        expr: |
+          rate(enkrypt_auth_failure_total[5m]) 
+          / (rate(enkrypt_auth_success_total[5m]) + rate(enkrypt_auth_failure_total[5m])) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High authentication failure rate (>20%)"
+```
+
+### Grafana Alerts
+
+Create alerts in Grafana dashboards:
+
+1. Edit panel → Alert tab
+2. Create alert rule
+3. Configure notification channels (Slack, PagerDuty, email)
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Monitor Key SLIs" icon="gauge">
+    Focus on Service Level Indicators:
+    - **Availability:** Success rate > 99.9%
+    - **Latency:** p95 < 500ms, p99 < 1s
+    - **Error Rate:** < 0.1%
+    - **Cache Hit Ratio:** > 80%
+  </Accordion>
+
+  <Accordion title="Set Up Alerts" icon="bell">
+    Configure alerts for:
+    - High error rates
+    - Slow operations (p95 > threshold)
+    - Security events (guardrail violations)
+    - Resource exhaustion (high active sessions)
+  </Accordion>
+
+  <Accordion title="Use Labels Wisely" icon="tags">
+    Avoid high-cardinality labels:
+    - ✅ Good: `server_name`, `tool_name`, `project_id`
+    - ❌ Bad: `user_id`, `request_id`, `timestamp`
+    
+    High cardinality increases memory usage and query time.
+  </Accordion>
+
+  <Accordion title="Analyze Trends" icon="chart-line">
+    Use histograms for distribution analysis:
+    ```promql
+    # Tool call latency distribution
+    histogram_quantile(0.5, rate(enkrypt_tool_call_duration_seconds_bucket[5m]))  # p50
+    histogram_quantile(0.95, rate(enkrypt_tool_call_duration_seconds_bucket[5m])) # p95
+    histogram_quantile(0.99, rate(enkrypt_tool_call_duration_seconds_bucket[5m])) # p99
+    ```
+  </Accordion>
+
+  <Accordion title="Monitor Security Metrics" icon="shield">
+    Track security events:
+    - Guardrail violations by type
+    - Blocked requests over time
+    - PII redaction frequency
+    - Authentication failures
+    
+    Set up alerts for anomalies.
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+### Metrics Not Appearing in Prometheus
+
+1. **Check collector metrics endpoint:**
+   ```bash
+   curl http://localhost:8889/metrics
+   ```
+
+2. **Verify Prometheus scrape targets:**
+   http://localhost:9090/targets
+
+3. **Check collector logs:**
+   ```bash
+   docker logs otel-collector | grep prometheus
+   ```
+
+### High Cardinality Issues
+
+**Symptom:** Prometheus using excessive memory
+
+**Solution:** Reduce label cardinality
+
+```python
+# Before (high cardinality)
+metric.add(1, attributes={"user_id": user_id})  # ❌
+
+# After (low cardinality)
+metric.add(1, attributes={"project_id": project_id})  # ✅
+```
+
+### Dashboards Not Loading
+
+1. **Check Grafana logs:**
+   ```bash
+   docker logs grafana
+   ```
+
+2. **Verify datasource connection:**
+   Grafana → Connections → Data sources → Prometheus → Test
+
+3. **Check dashboard JSON:**
+   ```bash
+   cat infra/grafana/provisioning/dashboards/gateway-metrics.json | jq
+   ```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Logging" icon="file-lines" href="/observability/logging">
+    Configure structured logging and log aggregation
+  </Card>
+  <Card title="OpenTelemetry Setup" icon="chart-network" href="/observability/opentelemetry">
+    Set up OTLP export and distributed tracing
+  </Card>
+  <Card title="Overview" icon="chart-line" href="/observability/overview">
+    Return to observability overview
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/introduction">
+    Explore the monitoring API
+  </Card>
+</CardGroup>

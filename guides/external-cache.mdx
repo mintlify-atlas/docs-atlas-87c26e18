@@ -1,0 +1,752 @@
+---
+title: 'External Cache Setup'
+description: 'Configure Redis or KeyDB external caching for improved performance'
+icon: 'database'
+---
+
+## Overview
+
+By default, Secure MCP Gateway caches tool discoveries and configuration data in-memory. For production deployments, multi-instance setups, or high-traffic environments, using an external cache like **Redis** or **KeyDB** significantly improves performance and enables cache sharing across gateway instances.
+
+## Why Use External Cache?
+
+<CardGroup cols={2}>
+  <Card title="Shared Cache" icon="share-nodes">
+    Multiple gateway instances share the same cache, reducing redundant API calls
+  </Card>
+  
+  <Card title="Persistence" icon="floppy-disk">
+    Cache survives gateway restarts, avoiding cold-start delays
+  </Card>
+  
+  <Card title="Better Performance" icon="gauge-high">
+    Redis/KeyDB are optimized for caching with sub-millisecond latency
+  </Card>
+  
+  <Card title="Scalability" icon="arrows-maximize">
+    Support for clustering and high-availability configurations
+  </Card>
+</CardGroup>
+
+## What Gets Cached?
+
+### Tool Discoveries
+- **Cache Key**: `enkrypt:tools:{config_id}:{server_name}`
+- **TTL**: 4 hours (configurable)
+- **Content**: Discovered tools from MCP servers
+- **Size**: Varies by server (typically 1-50 KB per server)
+
+### Gateway Configurations
+- **Cache Key**: `enkrypt:gateway_config:{gateway_key_hash}`
+- **TTL**: 24 hours (configurable)
+- **Content**: User/project/config mappings
+- **Size**: Small (1-5 KB)
+
+### API Key Mappings
+- **Cache Key**: `enkrypt:key_to_id:{gateway_key_hash}`
+- **TTL**: 24 hours (configurable)
+- **Content**: API key to config ID mapping
+- **Size**: Tiny (less than 1 KB)
+
+<Note>
+Cache keys are MD5-hashed for security to prevent exposure of sensitive identifiers.
+</Note>
+
+## Redis vs KeyDB
+
+| Feature | Redis | KeyDB |
+|---------|-------|-------|
+| **Performance** | Excellent | Faster (multi-threaded) |
+| **Compatibility** | Native Redis protocol | 100% Redis-compatible |
+| **Threading** | Single-threaded | Multi-threaded |
+| **Memory** | Efficient | More efficient |
+| **License** | BSD | BSD |
+| **Recommendation** | Good for most use cases | Better for high concurrency |
+
+**Our Recommendation**: KeyDB for production, Redis for development.
+
+## Quick Start with Docker
+
+### Using Docker Compose
+
+The easiest way to set up external cache:
+
+<Steps>
+  <Step title="Create docker-compose.yml">
+    ```yaml docker-compose.yml
+    version: '3'
+    services:
+      keydb:
+        image: eqalpha/keydb:latest
+        ports:
+          - "6379:6379"
+        command:
+          - keydb-server
+          - --requirepass
+          - your-secure-password
+          - --maxmemory
+          - 256mb
+          - --maxmemory-policy
+          - allkeys-lru
+        volumes:
+          - keydb-data:/data
+    
+    volumes:
+      keydb-data:
+    ```
+  </Step>
+  
+  <Step title="Start KeyDB">
+    ```bash
+    docker-compose up -d
+    ```
+  </Step>
+  
+  <Step title="Configure Gateway">
+    Edit `~/.enkrypt/enkrypt_mcp_config.json`:
+    ```json
+    {
+      "common_mcp_gateway_config": {
+        "enkrypt_mcp_use_external_cache": true,
+        "enkrypt_cache_host": "localhost",
+        "enkrypt_cache_port": 6379,
+        "enkrypt_cache_db": 0,
+        "enkrypt_cache_password": "your-secure-password",
+        "enkrypt_tool_cache_expiration": 4,
+        "enkrypt_gateway_cache_expiration": 24
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Restart Gateway">
+    Restart Claude Desktop to apply the changes. The gateway will now use KeyDB for caching.
+  </Step>
+</Steps>
+
+## Installation Methods
+
+<Tabs>
+  <Tab title="Docker (Recommended)">
+    ### KeyDB with Docker
+    
+    ```bash
+    # Pull KeyDB image
+    docker pull eqalpha/keydb:latest
+    
+    # Run KeyDB with password
+    docker run -d \
+      --name keydb \
+      -p 6379:6379 \
+      -v keydb-data:/data \
+      eqalpha/keydb:latest \
+      keydb-server \
+      --requirepass your-secure-password \
+      --maxmemory 256mb \
+      --maxmemory-policy allkeys-lru
+    ```
+    
+    ### Redis with Docker
+    
+    ```bash
+    # Pull Redis image
+    docker pull redis:7-alpine
+    
+    # Run Redis with password
+    docker run -d \
+      --name redis \
+      -p 6379:6379 \
+      -v redis-data:/data \
+      redis:7-alpine \
+      redis-server \
+      --requirepass your-secure-password \
+      --maxmemory 256mb \
+      --maxmemory-policy allkeys-lru
+    ```
+  </Tab>
+  
+  <Tab title="Native Installation">
+    ### macOS
+    
+    ```bash
+    # Using Homebrew
+    brew install redis
+    
+    # Start Redis
+    brew services start redis
+    
+    # Or use KeyDB
+    brew tap eqalpha/keydb
+    brew install keydb
+    brew services start keydb
+    ```
+    
+    ### Ubuntu/Debian
+    
+    ```bash
+    # Redis
+    sudo apt update
+    sudo apt install redis-server
+    sudo systemctl start redis-server
+    sudo systemctl enable redis-server
+    
+    # KeyDB
+    curl -s https://download.keydb.dev/keydb.gpg | sudo apt-key add -
+    echo "deb https://download.keydb.dev/stable/deb $(lsb_release -sc) main" | \
+      sudo tee /etc/apt/sources.list.d/keydb.list
+    sudo apt update
+    sudo apt install keydb
+    sudo systemctl start keydb
+    ```
+    
+    ### Windows
+    
+    ```powershell
+    # Using Windows Subsystem for Linux (WSL2)
+    wsl --install
+    
+    # Inside WSL2
+    sudo apt update
+    sudo apt install redis-server
+    sudo service redis-server start
+    ```
+  </Tab>
+  
+  <Tab title="Cloud Services">
+    ### Redis Cloud (Managed)
+    
+    1. Sign up at [Redis Cloud](https://redis.com/try-free/)
+    2. Create a new database
+    3. Note the host, port, and password
+    4. Configure gateway with the connection details
+    
+    ### AWS ElastiCache
+    
+    ```bash
+    # Configure with ElastiCache endpoint
+    {
+      "enkrypt_cache_host": "your-cluster.cache.amazonaws.com",
+      "enkrypt_cache_port": 6379,
+      "enkrypt_cache_password": null  # If no auth
+    }
+    ```
+    
+    ### Azure Cache for Redis
+    
+    ```bash
+    # Get connection details from Azure Portal
+    {
+      "enkrypt_cache_host": "your-cache.redis.cache.windows.net",
+      "enkrypt_cache_port": 6380,  # SSL port
+      "enkrypt_cache_password": "your-access-key"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration
+
+### Complete Cache Configuration
+
+```json ~/.enkrypt/enkrypt_mcp_config.json
+{
+  "common_mcp_gateway_config": {
+    // Enable external cache
+    "enkrypt_mcp_use_external_cache": true,
+    
+    // Connection settings
+    "enkrypt_cache_host": "localhost",
+    "enkrypt_cache_port": 6379,
+    "enkrypt_cache_db": 0,
+    "enkrypt_cache_password": "your-secure-password",
+    
+    // Expiration times (in hours)
+    "enkrypt_tool_cache_expiration": 4,
+    "enkrypt_gateway_cache_expiration": 24
+  }
+}
+```
+
+### Configuration Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enkrypt_mcp_use_external_cache` | boolean | `false` | Enable external cache |
+| `enkrypt_cache_host` | string | `"localhost"` | Redis/KeyDB host |
+| `enkrypt_cache_port` | integer | `6379` | Redis/KeyDB port |
+| `enkrypt_cache_db` | integer | `0` | Database number (0-15) |
+| `enkrypt_cache_password` | string/null | `null` | Authentication password |
+| `enkrypt_tool_cache_expiration` | integer | `4` | Tool cache TTL (hours) |
+| `enkrypt_gateway_cache_expiration` | integer | `24` | Gateway config TTL (hours) |
+
+### Database Selection
+
+Redis/KeyDB support 16 databases (0-15). Use different databases for different purposes:
+
+```json
+{
+  // Development
+  "enkrypt_cache_db": 0,
+  
+  // Staging
+  "enkrypt_cache_db": 1,
+  
+  // Production
+  "enkrypt_cache_db": 2
+}
+```
+
+## Cache Management
+
+### Check Cache Status
+
+<Tabs>
+  <Tab title="Claude Desktop">
+    Ask Claude:
+    ```
+    Show me the cache status
+    ```
+    
+    Or use the tool directly:
+    ```
+    Use enkrypt_get_cache_status to see cache metrics
+    ```
+  </Tab>
+  
+  <Tab title="CLI">
+    ```bash
+    secure-mcp-gateway system health-check
+    ```
+    
+    Output:
+    ```
+    Cache Status:
+      Type: External (Redis/KeyDB)
+      Host: localhost:6379
+      Total Gateways: 5
+      Total Tool Caches: 12
+      Total Config Caches: 5
+    ```
+  </Tab>
+  
+  <Tab title="Redis CLI">
+    ```bash
+    # Connect to Redis/KeyDB
+    redis-cli -h localhost -p 6379 -a your-secure-password
+    
+    # View all cache keys
+    KEYS enkrypt:*
+    
+    # Count keys by type
+    EVAL "return #redis.call('keys', 'enkrypt:tools:*')" 0
+    EVAL "return #redis.call('keys', 'enkrypt:gateway_config:*')" 0
+    
+    # View a specific cache entry
+    GET enkrypt:tools:abc-123:github
+    
+    # Check TTL
+    TTL enkrypt:tools:abc-123:github
+    ```
+  </Tab>
+</Tabs>
+
+### Clear Cache
+
+<Tabs>
+  <Tab title="Claude Desktop">
+    ```
+    Clear all cache
+    ```
+    
+    Or:
+    ```
+    Clear cache for github server
+    ```
+  </Tab>
+  
+  <Tab title="CLI">
+    ```bash
+    # Clear all cache
+    secure-mcp-gateway cache clear
+    
+    # Clear specific server
+    secure-mcp-gateway cache clear --server-name github
+    
+    # Clear gateway config cache
+    secure-mcp-gateway cache clear --cache-type gateway_config
+    ```
+  </Tab>
+  
+  <Tab title="Redis CLI">
+    ```bash
+    # Connect
+    redis-cli -h localhost -p 6379 -a your-secure-password
+    
+    # Clear all Enkrypt cache
+    EVAL "return redis.call('del', unpack(redis.call('keys', 'enkrypt:*')))" 0
+    
+    # Clear specific server tools
+    DEL enkrypt:tools:config-id:github
+    
+    # Clear all tool caches
+    EVAL "return redis.call('del', unpack(redis.call('keys', 'enkrypt:tools:*')))" 0
+    ```
+  </Tab>
+</Tabs>
+
+## Production Setup
+
+### Redis Configuration File
+
+Create `/etc/redis/redis.conf`:
+
+```conf
+# Network
+bind 0.0.0.0
+port 6379
+protected-mode yes
+
+# Security
+requirepass your-very-secure-password-here
+
+# Memory
+maxmemory 1gb
+maxmemory-policy allkeys-lru
+
+# Persistence (optional)
+save 900 1
+save 300 10
+save 60 10000
+dir /var/lib/redis
+
+# Logging
+loglevel notice
+logfile /var/log/redis/redis-server.log
+
+# Performance
+tcp-backlog 511
+tcp-keepalive 300
+timeout 0
+```
+
+### KeyDB Configuration
+
+Create `/etc/keydb/keydb.conf`:
+
+```conf
+# Network
+bind 0.0.0.0
+port 6379
+
+# Security
+requirepass your-very-secure-password-here
+
+# Multi-threading (KeyDB advantage)
+server-threads 4
+server-thread-affinity true
+
+# Memory
+maxmemory 1gb
+maxmemory-policy allkeys-lru
+
+# Persistence
+save 900 1
+save 300 10
+save 60 10000
+dir /var/lib/keydb
+
+# Logging
+loglevel notice
+logfile /var/log/keydb/keydb-server.log
+```
+
+### High Availability Setup
+
+<Tabs>
+  <Tab title="Redis Sentinel">
+    ```yaml docker-compose.yml
+    version: '3'
+    services:
+      redis-master:
+        image: redis:7-alpine
+        command: redis-server --requirepass master-password
+        ports:
+          - "6379:6379"
+      
+      redis-replica:
+        image: redis:7-alpine
+        command: >
+          redis-server
+          --replicaof redis-master 6379
+          --masterauth master-password
+          --requirepass replica-password
+        depends_on:
+          - redis-master
+      
+      redis-sentinel:
+        image: redis:7-alpine
+        command: >
+          redis-sentinel /etc/redis/sentinel.conf
+        volumes:
+          - ./sentinel.conf:/etc/redis/sentinel.conf
+        depends_on:
+          - redis-master
+          - redis-replica
+    ```
+    
+    **sentinel.conf:**
+    ```conf
+    sentinel monitor mymaster redis-master 6379 2
+    sentinel auth-pass mymaster master-password
+    sentinel down-after-milliseconds mymaster 5000
+    sentinel parallel-syncs mymaster 1
+    sentinel failover-timeout mymaster 10000
+    ```
+  </Tab>
+  
+  <Tab title="KeyDB Active-Replica">
+    ```yaml docker-compose.yml
+    version: '3'
+    services:
+      keydb-master:
+        image: eqalpha/keydb:latest
+        command: >
+          keydb-server
+          --server-threads 4
+          --requirepass master-password
+          --active-replica yes
+        ports:
+          - "6379:6379"
+      
+      keydb-replica:
+        image: eqalpha/keydb:latest
+        command: >
+          keydb-server
+          --server-threads 4
+          --replicaof keydb-master 6379
+          --masterauth master-password
+          --requirepass replica-password
+          --active-replica yes
+        depends_on:
+          - keydb-master
+    ```
+  </Tab>
+</Tabs>
+
+## Monitoring
+
+### Redis/KeyDB Metrics
+
+<CodeGroup>
+```bash redis-cli
+# Connect
+redis-cli -h localhost -p 6379 -a your-password
+
+# Server info
+INFO server
+INFO memory
+INFO stats
+INFO replication
+
+# Memory usage
+MEMORY USAGE enkrypt:tools:config:github
+
+# Slow operations
+SLOWLOG GET 10
+```
+
+```python Python Monitoring
+import redis
+
+r = redis.Redis(
+    host='localhost',
+    port=6379,
+    password='your-password',
+    decode_responses=True
+)
+
+# Get cache stats
+info = r.info()
+print(f"Used Memory: {info['used_memory_human']}")
+print(f"Connected Clients: {info['connected_clients']}")
+print(f"Total Commands: {info['total_commands_processed']}")
+print(f"Cache Hit Rate: {info['keyspace_hits'] / (info['keyspace_hits'] + info['keyspace_misses'])}")
+
+# Count Enkrypt keys
+keys = r.keys('enkrypt:*')
+print(f"Total Enkrypt Keys: {len(keys)}")
+```
+</CodeGroup>
+
+### Integration with OpenTelemetry
+
+The gateway automatically exports cache metrics via OpenTelemetry:
+
+- `cache.hits`: Cache hit count
+- `cache.misses`: Cache miss count
+- `cache.operations.duration`: Cache operation latency
+- `cache.size`: Number of cached items
+
+View in Grafana dashboards (see [Observability Setup](/guides/observability)).
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection Refused">
+    **Error:** `Error connecting to Redis: Connection refused`
+    
+    **Solutions:**
+    - Check Redis/KeyDB is running: `redis-cli ping`
+    - Verify host and port in config
+    - Check firewall rules
+    - Ensure bind address allows connections
+  </Accordion>
+
+  <Accordion title="Authentication Failed">
+    **Error:** `NOAUTH Authentication required`
+    
+    **Solutions:**
+    - Verify password in config
+    - Check Redis/KeyDB password: `redis-cli -a password ping`
+    - Ensure password doesn't have special characters causing issues
+  </Accordion>
+
+  <Accordion title="Cache Not Working">
+    **Symptoms:** Gateway still slow, tools re-discovered every time
+    
+    **Solutions:**
+    - Verify `enkrypt_mcp_use_external_cache: true`
+    - Check cache status: `secure-mcp-gateway system health-check`
+    - View gateway logs for cache errors
+    - Test Redis connection: `redis-cli -h host -p port -a password ping`
+  </Accordion>
+
+  <Accordion title="Out of Memory">
+    **Error:** `OOM command not allowed when used memory > 'maxmemory'`
+    
+    **Solutions:**
+    - Increase `maxmemory` in Redis config
+    - Set eviction policy: `maxmemory-policy allkeys-lru`
+    - Clear old cache: `redis-cli FLUSHDB`
+    - Reduce TTL values in gateway config
+  </Accordion>
+
+  <Accordion title="Slow Performance">
+    **Symptoms:** Cache slower than expected
+    
+    **Solutions:**
+    - Use KeyDB instead of Redis (multi-threaded)
+    - Check network latency between gateway and cache
+    - Monitor slow operations: `SLOWLOG GET 10`
+    - Ensure cache is on same network/host as gateway
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use KeyDB for Production" icon="rocket">
+    KeyDB's multi-threading provides better performance under load
+  </Card>
+  
+  <Card title="Set Strong Passwords" icon="lock">
+    Use long, random passwords for cache authentication
+  </Card>
+  
+  <Card title="Configure Memory Limits" icon="memory">
+    Set `maxmemory` and use `allkeys-lru` eviction policy
+  </Card>
+  
+  <Card title="Enable Persistence" icon="floppy-disk">
+    Use RDB or AOF persistence for important cache data
+  </Card>
+  
+  <Card title="Monitor Cache Metrics" icon="chart-line">
+    Track hit rates, memory usage, and performance
+  </Card>
+  
+  <Card title="Use Different DBs" icon="database">
+    Separate dev/staging/prod with different database numbers
+  </Card>
+  
+  <Card title="Regular Backups" icon="clock-rotate-left">
+    Backup cache configuration and data regularly
+  </Card>
+  
+  <Card title="Network Security" icon="shield-halved">
+    Use firewall rules, VPCs, or SSH tunnels for remote cache
+  </Card>
+</CardGroup>
+
+### Performance Tuning
+
+```conf
+# For high-throughput production
+maxmemory 2gb
+maxmemory-policy allkeys-lru
+tcp-keepalive 60
+timeout 300
+
+# KeyDB specific
+server-threads 8  # Match CPU cores
+server-thread-affinity true
+
+# Disable persistence if not needed
+save ""
+appendonly no
+```
+
+## Migration from Local to External Cache
+
+<Steps>
+  <Step title="Set Up Cache Server">
+    Install and configure Redis/KeyDB as shown above
+  </Step>
+  
+  <Step title="Update Gateway Config">
+    ```json
+    {
+      "common_mcp_gateway_config": {
+        "enkrypt_mcp_use_external_cache": true,
+        "enkrypt_cache_host": "localhost",
+        "enkrypt_cache_port": 6379,
+        "enkrypt_cache_password": "your-password"
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Restart Gateway">
+    Close and reopen Claude Desktop
+  </Step>
+  
+  <Step title="Verify Cache Working">
+    Ask Claude: "Show me the cache status"
+    
+    Should show: `Type: External (Redis/KeyDB)`
+  </Step>
+  
+  <Step title="Monitor Performance">
+    Watch for improved response times on repeated operations
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configure Guardrails" icon="shield-check" href="/guides/configuring-guardrails">
+    Guardrail results are also cached for better performance
+  </Card>
+  
+  <Card title="OAuth Setup" icon="lock" href="/guides/oauth-setup">
+    OAuth tokens are cached to avoid repeated token requests
+  </Card>
+  
+  <Card title="Observability" icon="chart-line" href="/observability/overview">
+    Monitor cache metrics in Grafana
+  </Card>
+  
+  <Card title="Production Deployment" icon="server" href="/deployment/deployment-patterns">
+    Learn about deploying the gateway in production
+  </Card>
+</CardGroup>
