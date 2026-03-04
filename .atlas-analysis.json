@@ -1,0 +1,168 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "Secure MCP Gateway",
+  "projectDescription": "Security middleware gateway for Model Context Protocol servers with authentication, guardrails, and observability",
+  "theme": "aspen",
+  "primaryColor": "#241c1c",
+  "lightColor": "#fb5e47",
+  "darkColor": "#fb67c4",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/how-it-works",
+              "concepts/configuration",
+              "concepts/authentication"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/guardrails",
+              "features/oauth",
+              "features/caching",
+              "features/tool-discovery",
+              "features/plugins"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/local-install",
+              "deployment/docker",
+              "deployment/deployment-patterns"
+            ]
+          },
+          {
+            "group": "Client Integration",
+            "pages": [
+              "clients/claude-desktop",
+              "clients/cursor",
+              "clients/copilot",
+              "clients/langchain",
+              "clients/other-clients"
+            ]
+          },
+          {
+            "group": "Observability",
+            "pages": [
+              "observability/overview",
+              "observability/opentelemetry",
+              "observability/metrics",
+              "observability/logging"
+            ]
+          },
+          {
+            "group": "Security",
+            "pages": [
+              "security/overview",
+              "security/guardrail-types",
+              "security/pii-handling",
+              "security/testing"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/adding-mcp-servers",
+              "guides/configuring-guardrails",
+              "guides/oauth-setup",
+              "guides/external-cache",
+              "guides/custom-plugins"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "REST API",
+            "pages": [
+              "api/overview",
+              "api/authentication",
+              "api/configurations",
+              "api/projects",
+              "api/users",
+              "api/api-keys",
+              "api/system"
+            ]
+          },
+          {
+            "group": "CLI Reference",
+            "pages": [
+              "cli/overview",
+              "cli/config-commands",
+              "cli/project-commands",
+              "cli/user-commands",
+              "cli/system-commands"
+            ]
+          },
+          {
+            "group": "Gateway Tools",
+            "pages": [
+              "tools/overview",
+              "tools/list-servers",
+              "tools/discover-tools",
+              "tools/execute-tools",
+              "tools/cache-management"
+            ]
+          },
+          {
+            "group": "Plugin API",
+            "pages": [
+              "plugins/overview",
+              "plugins/auth-providers",
+              "plugins/guardrail-providers",
+              "plugins/telemetry-providers"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Authentication & Authorization with API key management",
+    "OAuth 2.0/2.1 support with mutual TLS (mTLS)",
+    "Input/Output guardrails (PII, toxicity, injection attacks, policy violations)",
+    "Dynamic tool discovery from MCP servers",
+    "Multi-level caching (local & external Redis/KeyDB)",
+    "OpenTelemetry observability with Prometheus & Grafana",
+    "Plugin architecture for auth, guardrails, and telemetry",
+    "REST API and CLI for configuration management",
+    "Support for multiple MCP clients (Claude, Cursor, Copilot, LangChain)"
+  ],
+  "publicApiSurface": [
+    "secure-mcp-gateway (CLI entry point)",
+    "Gateway Server (FastMCP on :8000/mcp/)",
+    "REST API Server (FastAPI on :8001)",
+    "enkrypt_list_all_servers - List configured MCP servers",
+    "enkrypt_get_server_info - Get server details",
+    "enkrypt_discover_all_tools - Discover tools from servers",
+    "enkrypt_secure_call_tools - Execute tools with guardrails",
+    "enkrypt_get_cache_status - Cache statistics",
+    "enkrypt_clear_cache - Clear cache entries",
+    "enkrypt_get_timeout_metrics - Timeout metrics",
+    "POST /api/v1/configs - Create configuration",
+    "GET /api/v1/configs - List configurations",
+    "POST /api/v1/projects - Create project",
+    "POST /api/v1/users - Create user",
+    "POST /api/v1/api-keys - Generate API key",
+    "AuthProvider plugin interface",
+    "GuardrailProvider plugin interface",
+    "TelemetryProvider plugin interface"
+  ]
+}
